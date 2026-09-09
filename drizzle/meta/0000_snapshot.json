@@ -1,0 +1,1579 @@
+{
+  "id": "7afc80da-a173-47aa-919b-9bcf580dd35a",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "webapp.accounts": {
+      "name": "accounts",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "bankName": {
+          "name": "bankName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "accounts_household_idx": {
+          "name": "accounts_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "accounts_householdId_households_id_fk": {
+          "name": "accounts_householdId_households_id_fk",
+          "tableFrom": "accounts",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "accounts_household_id_unique": {
+          "name": "accounts_household_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "householdId",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "accounts_version_check": {
+          "name": "accounts_version_check",
+          "value": "\"webapp\".\"accounts\".\"version\" > 0"
+        },
+        "accounts_type_check": {
+          "name": "accounts_type_check",
+          "value": "\"webapp\".\"accounts\".\"type\" in ('checking', 'savings', 'credit_card', 'cash', 'other')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.allocations": {
+      "name": "allocations",
+      "schema": "webapp",
+      "columns": {
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "receiptId": {
+          "name": "receiptId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expenseId": {
+          "name": "expenseId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "allocations_household_idx": {
+          "name": "allocations_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "allocations_expense_idx": {
+          "name": "allocations_expense_idx",
+          "columns": [
+            {
+              "expression": "expenseId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "allocations_householdId_households_id_fk": {
+          "name": "allocations_householdId_households_id_fk",
+          "tableFrom": "allocations",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "allocations_receipt_household_fk": {
+          "name": "allocations_receipt_household_fk",
+          "tableFrom": "allocations",
+          "tableTo": "transactions",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "receiptId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "allocations_expense_household_fk": {
+          "name": "allocations_expense_household_fk",
+          "tableFrom": "allocations",
+          "tableTo": "transactions",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "expenseId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "allocations_receiptId_expenseId_pk": {
+          "name": "allocations_receiptId_expenseId_pk",
+          "columns": [
+            "receiptId",
+            "expenseId"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "allocations_amount_check": {
+          "name": "allocations_amount_check",
+          "value": "\"webapp\".\"allocations\".\"amount\" > 0 and \"webapp\".\"allocations\".\"amount\" <= 1000000000000"
+        },
+        "allocations_distinct_check": {
+          "name": "allocations_distinct_check",
+          "value": "\"webapp\".\"allocations\".\"receiptId\" <> \"webapp\".\"allocations\".\"expenseId\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.audit": {
+      "name": "audit",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recordId": {
+          "name": "recordId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "audit_household_at_idx": {
+          "name": "audit_household_at_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_householdId_households_id_fk": {
+          "name": "audit_householdId_households_id_fk",
+          "tableFrom": "audit",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "webapp.categories": {
+      "name": "categories",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parentId": {
+          "name": "parentId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "builtin": {
+          "name": "builtin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hidden": {
+          "name": "hidden",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "categories_household_idx": {
+          "name": "categories_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "categories_sibling_name_unique": {
+          "name": "categories_sibling_name_unique",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"parentId\", '00000000-0000-0000-0000-000000000000'::uuid)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "categories_householdId_households_id_fk": {
+          "name": "categories_householdId_households_id_fk",
+          "tableFrom": "categories",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "categories_parent_household_fk": {
+          "name": "categories_parent_household_fk",
+          "tableFrom": "categories",
+          "tableTo": "categories",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "parentId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "categories_household_id_unique": {
+          "name": "categories_household_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "householdId",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "categories_version_check": {
+          "name": "categories_version_check",
+          "value": "\"webapp\".\"categories\".\"version\" > 0"
+        },
+        "categories_kind_check": {
+          "name": "categories_kind_check",
+          "value": "\"webapp\".\"categories\".\"kind\" in ('income', 'expense')"
+        },
+        "categories_not_own_parent": {
+          "name": "categories_not_own_parent",
+          "value": "\"webapp\".\"categories\".\"parentId\" is distinct from \"webapp\".\"categories\".\"id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.grants": {
+      "name": "grants",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clientId": {
+          "name": "clientId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission": {
+          "name": "permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked": {
+          "name": "revoked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "grant_identity": {
+          "name": "grant_identity",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "clientId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "grants_user_idx": {
+          "name": "grants_user_idx",
+          "columns": [
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "grants_householdId_households_id_fk": {
+          "name": "grants_householdId_households_id_fk",
+          "tableFrom": "grants",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "grants_permission_check": {
+          "name": "grants_permission_check",
+          "value": "\"webapp\".\"grants\".\"permission\" in ('read', 'write')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.households": {
+      "name": "households",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "wrappedKey": {
+          "name": "wrappedKey",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "households_currency_check": {
+          "name": "households_currency_check",
+          "value": "\"webapp\".\"households\".\"currency\" in ('CAD', 'USD')"
+        },
+        "households_revision_check": {
+          "name": "households_revision_check",
+          "value": "\"webapp\".\"households\".\"revision\" >= 0"
+        },
+        "households_timezone_check": {
+          "name": "households_timezone_check",
+          "value": "\"webapp\".\"households\".\"timezone\" <> ''"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.idempotency": {
+      "name": "idempotency",
+      "schema": "webapp",
+      "columns": {
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requestHash": {
+          "name": "requestHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "idempotency_householdId_households_id_fk": {
+          "name": "idempotency_householdId_households_id_fk",
+          "tableFrom": "idempotency",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idempotency_householdId_userId_key_pk": {
+          "name": "idempotency_householdId_userId_key_pk",
+          "columns": [
+            "householdId",
+            "userId",
+            "key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "webapp.invitations": {
+      "name": "invitations",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked": {
+          "name": "revoked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "invitations_household_idx": {
+          "name": "invitations_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "invitations_householdId_households_id_fk": {
+          "name": "invitations_householdId_households_id_fk",
+          "tableFrom": "invitations",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "invitations_hash_unique": {
+          "name": "invitations_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "webapp.members": {
+      "name": "members",
+      "schema": "webapp",
+      "columns": {
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "displayName": {
+          "name": "displayName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Member'"
+        }
+      },
+      "indexes": {
+        "members_household_idx": {
+          "name": "members_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "members_householdId_households_id_fk": {
+          "name": "members_householdId_households_id_fk",
+          "tableFrom": "members",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "members_role_check": {
+          "name": "members_role_check",
+          "value": "\"webapp\".\"members\".\"role\" in ('owner', 'member')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.requests": {
+      "name": "requests",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "displayName": {
+          "name": "displayName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Member'"
+        }
+      },
+      "indexes": {
+        "request_user_household": {
+          "name": "request_user_household",
+          "columns": [
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "requests_household_idx": {
+          "name": "requests_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "requests_householdId_households_id_fk": {
+          "name": "requests_householdId_households_id_fk",
+          "tableFrom": "requests",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "requests_status_check": {
+          "name": "requests_status_check",
+          "value": "\"webapp\".\"requests\".\"status\" in ('pending', 'approved', 'rejected')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.tokens": {
+      "name": "tokens",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission": {
+          "name": "permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked": {
+          "name": "revoked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "tokens_user_idx": {
+          "name": "tokens_user_idx",
+          "columns": [
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tokens_household_idx": {
+          "name": "tokens_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tokens_householdId_households_id_fk": {
+          "name": "tokens_householdId_households_id_fk",
+          "tableFrom": "tokens",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tokens_hash_unique": {
+          "name": "tokens_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "tokens_permission_check": {
+          "name": "tokens_permission_check",
+          "value": "\"webapp\".\"tokens\".\"permission\" in ('read', 'write')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.transactions": {
+      "name": "transactions",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "categoryId": {
+          "name": "categoryId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subcategoryId": {
+          "name": "subcategoryId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accountId": {
+          "name": "accountId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reimbursable": {
+          "name": "reimbursable",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comments": {
+          "name": "comments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "transactions_household_idx": {
+          "name": "transactions_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_category_idx": {
+          "name": "transactions_category_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "categoryId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_subcategory_idx": {
+          "name": "transactions_subcategory_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subcategoryId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_account_idx": {
+          "name": "transactions_account_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "accountId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "transactions_householdId_households_id_fk": {
+          "name": "transactions_householdId_households_id_fk",
+          "tableFrom": "transactions",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "transactions_category_household_fk": {
+          "name": "transactions_category_household_fk",
+          "tableFrom": "transactions",
+          "tableTo": "categories",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "categoryId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transactions_subcategory_household_fk": {
+          "name": "transactions_subcategory_household_fk",
+          "tableFrom": "transactions",
+          "tableTo": "categories",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "subcategoryId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transactions_account_household_fk": {
+          "name": "transactions_account_household_fk",
+          "tableFrom": "transactions",
+          "tableTo": "accounts",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "accountId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "transactions_household_id_unique": {
+          "name": "transactions_household_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "householdId",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "transactions_version_check": {
+          "name": "transactions_version_check",
+          "value": "\"webapp\".\"transactions\".\"version\" > 0"
+        },
+        "transactions_amount_check": {
+          "name": "transactions_amount_check",
+          "value": "\"webapp\".\"transactions\".\"amount\" between -1000000000000 and 1000000000000 and \"webapp\".\"transactions\".\"amount\" <> 0"
+        },
+        "transactions_reimbursable_check": {
+          "name": "transactions_reimbursable_check",
+          "value": "\"webapp\".\"transactions\".\"reimbursable\" between -1000000000000 and 1000000000000 and abs(\"webapp\".\"transactions\".\"reimbursable\") <= abs(\"webapp\".\"transactions\".\"amount\") and (\"webapp\".\"transactions\".\"reimbursable\" = 0 or sign(\"webapp\".\"transactions\".\"reimbursable\") = sign(\"webapp\".\"transactions\".\"amount\"))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "webapp.transfers": {
+      "name": "transfers",
+      "schema": "webapp",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "householdId": {
+          "name": "householdId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceId": {
+          "name": "sourceId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destinationId": {
+          "name": "destinationId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comments": {
+          "name": "comments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "transfers_household_idx": {
+          "name": "transfers_household_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transfers_source_idx": {
+          "name": "transfers_source_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sourceId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transfers_destination_idx": {
+          "name": "transfers_destination_idx",
+          "columns": [
+            {
+              "expression": "householdId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "destinationId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "transfers_householdId_households_id_fk": {
+          "name": "transfers_householdId_households_id_fk",
+          "tableFrom": "transfers",
+          "tableTo": "households",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "transfers_source_household_fk": {
+          "name": "transfers_source_household_fk",
+          "tableFrom": "transfers",
+          "tableTo": "accounts",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "sourceId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transfers_destination_household_fk": {
+          "name": "transfers_destination_household_fk",
+          "tableFrom": "transfers",
+          "tableTo": "accounts",
+          "schemaTo": "webapp",
+          "columnsFrom": [
+            "householdId",
+            "destinationId"
+          ],
+          "columnsTo": [
+            "householdId",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "transfers_version_check": {
+          "name": "transfers_version_check",
+          "value": "\"webapp\".\"transfers\".\"version\" > 0"
+        },
+        "transfers_amount_check": {
+          "name": "transfers_amount_check",
+          "value": "\"webapp\".\"transfers\".\"amount\" > 0 and \"webapp\".\"transfers\".\"amount\" <= 1000000000000"
+        },
+        "transfers_distinct_accounts": {
+          "name": "transfers_distinct_accounts",
+          "value": "\"webapp\".\"transfers\".\"sourceId\" <> \"webapp\".\"transfers\".\"destinationId\""
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "webapp": "webapp"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

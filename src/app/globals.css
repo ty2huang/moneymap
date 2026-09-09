@@ -1,0 +1,102 @@
+@import "tailwindcss";
+:root {
+  color-scheme: dark;
+  --background: #101513;
+  --foreground: #eef2ee;
+  --card: #171e1b;
+  --primary: #b7ed9c;
+  --primary-foreground: #162311;
+  --muted: #222c27;
+  --muted-foreground: #99aaa0;
+  --border: #2a3730;
+  --input: #34433a;
+  --ring: #b7ed9c;
+  --destructive: #c34d50;
+  --radius: 0.75rem;
+}
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+button,
+a,
+input,
+select {
+  touch-action: manipulation;
+}
+button:not(:disabled),
+a {
+  cursor: pointer;
+}
+::selection {
+  background: #5a7950;
+  color: white;
+}
+td,
+th {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 12px;
+  text-align: left;
+}
+th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+td {
+  font-size: 13px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+input[type="date"] {
+  min-width: 0;
+}
+.recharts-cartesian-axis-tick-value {
+  fill: var(--muted-foreground);
+}
+.recharts-default-tooltip {
+  border-radius: 10px !important;
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+}
+@layer base {
+  a {
+    color: inherit;
+  }
+}
+textarea {
+  resize: vertical;
+}
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+input:invalid:not(:placeholder-shown) {
+  box-shadow: none;
+}
