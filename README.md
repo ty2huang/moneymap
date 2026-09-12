@@ -21,68 +21,119 @@ MoneyMap is a TypeScript household finance app for shared budgeting, reimburseme
 
 ## Prerequisites
 
-- Node.js 22.13+
-- pnpm 12.3.4
-- A Supabase project
+- Node.js 24 or later (CI and deployment use Node 24).
+- pnpm matching the `packageManager` field in [package.json](package.json).
+- Docker Desktop (or another Docker-compatible runtime), running before local setup.
+- Google OAuth credentials for local sign-in. A hosted Supabase project is only
+  needed for deployment.
 
 ## Local setup
 
+Run these commands from the repository root.
+
 1. Install dependencies:
 
-```sh
-pnpm install
-```
+   ```sh
+   pnpm install --frozen-lockfile
+   ```
 
-2. Copy `.env.example` to `.env.local` and configure the required values.
+2. Start local Supabase and initialize the database.
 
-Required environment variables include:
+   Copy `.env.example` to `.env.local` if you haven't already. Google is enabled
+   in `supabase/config.toml`, so fill in these credentials before starting the
+   local stack. The remaining values can be configured in step 3:
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `APP_URL` (for example `http://localhost:3000`)
-- `DATABASE_URL`
-- `DATABASE_ADMIN_URL`
-- `MONEYMAP_MASTER_KEYS`
-- `MONEYMAP_ACTIVE_KEY_VERSION`
+   ```dotenv
+   SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=<google-client-id>
+   SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=<google-client-secret>
+   ```
 
-`MONEYMAP_MASTER_KEYS` should contain a JSON object keyed by version, for example:
+   Create a Google Web application OAuth client as described in the
+   [Google setup guide](docs/operations.md#4-configure-google-sign-in-and-redirects),
+   using `http://localhost:3000` as the JavaScript origin and
+   `http://127.0.0.1:54321/auth/v1/callback` as the authorized redirect URI
+   for the default local stack. Add your account as a test user if needed.
 
-```dotenv
-MONEYMAP_MASTER_KEYS='{"1":"<base64-encoded-32-byte-key>"}'
-MONEYMAP_ACTIVE_KEY_VERSION=1
-```
+   ```sh
+   pnpm run db:start
+   pnpm run db:reset
+   pnpm exec supabase status
+   ```
 
-Keep the key backup secure. If records already exist, use the key rotation flow instead of replacing existing versions.
+   - `db:start` starts the local Supabase services in Docker.
+   - `db:reset` recreates the local database and applies the checked-in migrations.
+     This deletes existing local data; use it for initial setup or an intentional reset.
+   - `supabase status` displays the local API URL, database URL, Studio URL, and
+     API keys. Keep this output handy for the next step.
 
-3. Start the local Supabase stack and apply the schema:
+3. Configure the app environment and database login.
 
-```sh
-pnpm run db:start
-pnpm run db:reset
-pnpm run auth:configure
-```
+   Keep the Google credentials in `.env.local` and fill in the remaining values
+   below in the same file.
 
-4. Start the app:
+   Open the Studio URL printed by `supabase status` and use its SQL Editor to
+   provision the local application role:
 
-```sh
-pnpm run dev
-```
+   ```sql
+   ALTER ROLE moneymap_app
+     WITH LOGIN
+     PASSWORD 'replace-with-a-local-app-password'
+     NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+   ```
 
-Open `http://localhost:3000`.
+   The migrations deliberately create this role without login access. Repeat
+   this step after resetting the local database if the login has been removed.
 
-## Supabase and auth configuration
+   Fill in `.env.local` using the values from `supabase status`:
 
-- Enable Google authentication in Supabase and configure the OAuth callback to your app origin.
-- Set the app's site URL to `APP_URL` and allow the callback path `/auth/callback`.
-- Use a restricted `moneymap_app` database user for application queries; do not use `postgres`, a table owner, `service_role`, or a role with `BYPASSRLS`.
-- Apply the migrations with `pnpm run db:migrate` from the linked Supabase project. The migrations create `moneymap_app` as `NOLOGIN` by design; provision its login and password separately with a privileged database session, as described in [the operations runbook](docs/operations.md#deploy-to-vercel).
-- Set `DATABASE_URL` to a connection string for the password-protected `moneymap_app` role. Keep `DATABASE_ADMIN_URL` out of the deployed application; it is reserved for administrative migration, restore, and key-rotation tooling.
-- Configure the custom access token hook and store the exact `APP_URL` origin in
-  `webapp.oauth_configuration`. For local development, run
-  `pnpm run auth:configure` after applying the migrations. The command reads
-  `APP_URL` and `DATABASE_ADMIN_URL` from `.env.local`, stores the app origin as
-  the audience, and verifies it before returning.
-- The app requires a real OAuth-backed household flow; there is no hidden demo login or bypass.
+   | Variable                               | Local value / where to find it                                                                                                                                     |
+   | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | `NEXT_PUBLIC_SUPABASE_URL`             | API / project URL, normally `http://127.0.0.1:54321`                                                                                                               |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key from the local status output, not a hosted project's key                                                                                           |
+   | `APP_URL`                              | `http://localhost:3000`, without a trailing slash                                                                                                                  |
+   | `DATABASE_ADMIN_URL`                   | Database URL from status, normally `postgresql://postgres:postgres@127.0.0.1:54322/postgres`                                                                       |
+   | `DATABASE_URL`                         | Same database host, port, and database, but use `moneymap_app` and the password set above: `postgresql://moneymap_app:<encoded-password>@127.0.0.1:54322/postgres` |
+   | `MONEYMAP_MASTER_KEYS`                 | JSON map containing a generated encryption key, as shown below                                                                                                     |
+   | `MONEYMAP_ACTIVE_KEY_VERSION`          | `1`                                                                                                                                                                |
+
+   URL-encode special characters in the database password. Use the actual status
+   output if your ports differ. The application requires the restricted
+   `moneymap_app` role; the admin connection is only for administrative scripts.
+
+   Generate a 32-byte encryption key:
+
+   ```sh
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+   ```
+
+   Paste the result into `.env.local`:
+
+   ```dotenv
+   MONEYMAP_MASTER_KEYS='{"1":"<generated-base64-key>"}'
+   MONEYMAP_ACTIVE_KEY_VERSION=1
+   ```
+
+   Keep the key while retaining the database. For existing encrypted records, use
+   the existing key map or the [key rotation flow](docs/operations.md#key-rotation).
+
+4. Configure the local OAuth audience:
+
+   ```sh
+   pnpm run auth:configure
+   ```
+
+   This reads `APP_URL` and `DATABASE_ADMIN_URL` from `.env.local`, stores the
+   origin in `webapp.oauth_configuration`, and verifies it. Run it after migrations
+   and environment setup, and again after a database reset or origin change.
+   The local token hook and OAuth server are enabled in `supabase/config.toml`.
+
+5. Start the app:
+
+   ```sh
+   pnpm run dev
+   ```
+
+   Open `http://localhost:3000` and sign in with Google.
 
 ## API and MCP
 
@@ -99,28 +150,26 @@ The app accepts OAuth or personal tokens in the `Authorization: Bearer ...` head
 pnpm run typecheck
 pnpm test
 pnpm run build
+pnpm exec playwright install chromium
 pnpm run test:e2e
 ```
 
-Useful commands:
+Install Chromium before running the browser tests (and again after Playwright
+upgrades). On Linux, use `pnpm exec playwright install --with-deps chromium`
+if browser system dependencies are missing. The browser tests start a local
+production server using the build above.
+
+Run database integration tests separately:
 
 ```sh
 pnpm run test:integration
-pnpm exec playwright install chromium
 ```
 
-`pnpm test` runs the unit suite; database-backed tests are skipped unless `TEST_DATABASE_URL` is configured. The integration flow can use an existing PostgreSQL instance or start a disposable local container.
+`pnpm test` runs the unit suite; database-backed tests are skipped unless `TEST_DATABASE_URL` is configured. Set `TEST_DATABASE_URL` in `.env.local` to an isolated test database before running `test:integration`. The integration flow can use an existing PostgreSQL instance or start a disposable local container; never use the app or production database for these tests.
 
 ## Deployment and operations
 
 For deployment and operational procedures, see [docs/operations.md](docs/operations.md). Production setup requires a Vercel project, a Supabase project, and valid Google OAuth configuration.
-
-## Privacy and security
-
-- Descriptions, comments, and account/bank names are encrypted with AES-256-GCM under per-household keys.
-- Amounts, dates, category names, member identities, and general metadata remain queryable by an administrator.
-- This is not end-to-end encryption: a server or key holder can decrypt text fields.
-- There are no bank-connections, tracking scripts, or session replay integrations in the app.
 
 ## License
 
