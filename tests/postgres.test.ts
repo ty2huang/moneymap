@@ -27,16 +27,18 @@ describe.skipIf(!url)(
       other = { userId: crypto.randomUUID() },
       joiner = { userId: crypto.randomUUID() };
     beforeAll(async () => {
-      if (!url || new URL(url).pathname !== "/moneymap_test")
+      if (!url || new URL(url).pathname !== "/moneymap_test") {
         throw new Error("Tests require dedicated database named moneymap_test");
+      }
       admin = postgres(url, { max: 2 });
       await admin`drop schema if exists webapp cascade`;
       for (const name of (await readdir("supabase/migrations"))
         .filter((f) => f.endsWith(".sql"))
-        .sort())
+        .sort()) {
         await admin.unsafe(
           await readFile("supabase/migrations/" + name, "utf8"),
         );
+      }
       await admin`alter role moneymap_app login password 'local-test-role'`;
       const appURL = new URL(url);
       appURL.username = "moneymap_app";
@@ -49,11 +51,9 @@ describe.skipIf(!url)(
       process.env.APP_URL = "http://localhost:3000";
       await createHousehold(owner, {
         currency: "USD",
-        timezone: "UTC",
       });
       await createHousehold(other, {
         currency: "USD",
-        timezone: "UTC",
       });
       await mutate(owner, {
         type: "account.save",
@@ -256,9 +256,8 @@ describe.skipIf(!url)(
       const pending = { userId: crypto.randomUUID() };
       const { id: h } = await createHousehold(last, {
         currency: "USD",
-        timezone: "UTC",
       });
-      for (const name of ["Checking", "Savings"])
+      for (const name of ["Checking", "Savings"]) {
         await mutate(last, {
           type: "account.save",
           data: {
@@ -268,6 +267,7 @@ describe.skipIf(!url)(
             archived: false,
           },
         });
+      }
       let s = await snapshot(last);
       await mutate(last, expense(s.ledger), "delete-test");
       s = await snapshot(last);
@@ -317,11 +317,12 @@ describe.skipIf(!url)(
       expect(
         await admin`select id from webapp.households where id=${h}`,
       ).toHaveLength(0);
-      for (const table of scopedTables)
+      for (const table of scopedTables) {
         expect(
           await admin`select * from ${admin("webapp." + table)} where "householdId"=${h}`,
           table,
         ).toHaveLength(0);
+      }
       await expect(snapshot(last)).rejects.toThrow(/join/);
       expect(await snapshot(other)).toEqual(untouched);
       await expect(
@@ -332,7 +333,6 @@ describe.skipIf(!url)(
       await expect(
         createHousehold(last, {
           currency: "USD",
-          timezone: "UTC",
         }),
       ).resolves.toHaveProperty("id");
     });
@@ -341,7 +341,6 @@ describe.skipIf(!url)(
         b = { userId: crypto.randomUUID() };
       const { id: h } = await createHousehold(a, {
         currency: "USD",
-        timezone: "UTC",
       });
       await admin`insert into webapp.members("userId","householdId",role) values(${b.userId},${h},'owner')`;
       await expect(
@@ -361,10 +360,11 @@ describe.skipIf(!url)(
       "restores a database dump and decrypts fields with backed-up keys",
       async () => {
         const container = process.env.TEST_DOCKER_CONTAINER!;
-        if (!/^moneymap-test[-a-z0-9]*$/.test(container))
+        if (!/^moneymap-test[-a-z0-9]*$/.test(container)) {
           throw new Error(
             "Only a dedicated MoneyMap test container is allowed",
           );
+        }
         const run = (args: string[]) =>
           execFileSync("docker", ["exec", container, ...args], {
             stdio: "pipe",

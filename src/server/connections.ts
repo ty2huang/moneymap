@@ -71,16 +71,17 @@ export async function connectionAction(p: Principal, input: unknown) {
       return { token };
     }
     ensure(x.id, "Select a connection.");
-    if (x.action === "revoke-token")
+    if (x.action === "revoke-token") {
       await tx
         .update(t.tokens)
         .set({ revoked: true })
         .where(and(eq(t.tokens.id, x.id), eq(t.tokens.userId, p.userId)));
-    else
+    } else {
       await tx
         .update(t.grants)
         .set({ revoked: true })
         .where(and(eq(t.grants.id, x.id), eq(t.grants.userId, p.userId)));
+    }
     return { ok: true };
   });
 }
@@ -100,7 +101,7 @@ export async function consent(p: Principal, input: unknown) {
     !error && details && "client" in details,
     "Invalid authorization request.",
   );
-  if (x.decision === "approve")
+  if (x.decision === "approve") {
     await authorized(p, true, async (tx, s) => {
       const clientId = details.client.id;
       const values = {
@@ -119,6 +120,7 @@ export async function consent(p: Principal, input: unknown) {
           set: { permission: x.permission, revoked: false },
         });
     });
+  }
   const result =
     x.decision === "approve"
       ? await client.auth.oauth.approveAuthorization(x.authorizationId, {

@@ -44,7 +44,6 @@ Required environment variables include:
 - `DATABASE_ADMIN_URL`
 - `MONEYMAP_MASTER_KEYS`
 - `MONEYMAP_ACTIVE_KEY_VERSION`
-- `OAUTH_AUDIENCE`
 
 `MONEYMAP_MASTER_KEYS` should contain a JSON object keyed by version, for example:
 
@@ -60,6 +59,7 @@ Keep the key backup secure. If records already exist, use the key rotation flow 
 ```sh
 pnpm run db:start
 pnpm run db:reset
+pnpm run auth:configure
 ```
 
 4. Start the app:
@@ -75,7 +75,13 @@ Open `http://localhost:3000`.
 - Enable Google authentication in Supabase and configure the OAuth callback to your app origin.
 - Set the app's site URL to `APP_URL` and allow the callback path `/auth/callback`.
 - Use a restricted `moneymap_app` database user for application queries; do not use `postgres`, a table owner, `service_role`, or a role with `BYPASSRLS`.
-- Configure the custom access token hook and `app.oauth_audience` to match the application origin.
+- Apply the migrations with `pnpm run db:migrate` from the linked Supabase project. The migrations create `moneymap_app` as `NOLOGIN` by design; provision its login and password separately with a privileged database session, as described in [the operations runbook](docs/operations.md#deploy-to-vercel).
+- Set `DATABASE_URL` to a connection string for the password-protected `moneymap_app` role. Keep `DATABASE_ADMIN_URL` out of the deployed application; it is reserved for administrative migration, restore, and key-rotation tooling.
+- Configure the custom access token hook and store the exact `APP_URL` origin in
+  `webapp.oauth_configuration`. For local development, run
+  `pnpm run auth:configure` after applying the migrations. The command reads
+  `APP_URL` and `DATABASE_ADMIN_URL` from `.env.local`, stores the app origin as
+  the audience, and verifies it before returning.
 - The app requires a real OAuth-backed household flow; there is no hidden demo login or bypass.
 
 ## API and MCP

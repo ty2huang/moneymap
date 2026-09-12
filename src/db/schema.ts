@@ -21,14 +21,12 @@ export const households = webappSchema.table(
   {
     id: uuid().primaryKey(),
     currency: text().$type<"CAD" | "USD">().notNull(),
-    timezone: text().notNull(),
     revision: integer().notNull().default(0),
     wrappedKey: text().notNull(),
   },
   (t) => [
     check("households_currency_check", sql`${t.currency} in ('CAD', 'USD')`),
     check("households_revision_check", sql`${t.revision} >= 0`),
-    check("households_timezone_check", sql`${t.timezone} <> ''`),
   ],
 );
 export const members = webappSchema.table(
@@ -126,7 +124,10 @@ export const categories = webappSchema.table(
     }),
     check("categories_version_check", sql`${t.version} > 0`),
     check("categories_kind_check", sql`${t.kind} in ('income', 'expense')`),
-    check("categories_not_own_parent", sql`${t.parentId} is distinct from ${t.id}`),
+    check(
+      "categories_not_own_parent",
+      sql`${t.parentId} is distinct from ${t.id}`,
+    ),
     index("categories_household_idx").on(t.householdId),
     uniqueIndex("categories_sibling_name_unique").on(
       t.householdId,
@@ -242,7 +243,10 @@ export const transfers = webappSchema.table(
       "transfers_amount_check",
       sql`${t.amount} > 0 and ${t.amount} <= 1000000000000`,
     ),
-    check("transfers_distinct_accounts", sql`${t.sourceId} <> ${t.destinationId}`),
+    check(
+      "transfers_distinct_accounts",
+      sql`${t.sourceId} <> ${t.destinationId}`,
+    ),
     index("transfers_household_idx").on(t.householdId),
     index("transfers_source_idx").on(t.householdId, t.sourceId),
     index("transfers_destination_idx").on(t.householdId, t.destinationId),

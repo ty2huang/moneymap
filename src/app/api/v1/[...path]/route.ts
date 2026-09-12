@@ -9,11 +9,12 @@ async function handle(
     sameOrigin(request);
     const p = await authenticate(request),
       { path } = await params;
-    if (path.length > 2)
+    if (path.length > 2) {
       return json(
         { error: { code: "NOT_FOUND", message: "Route not found." } },
         404,
       );
+    }
     if (request.method === "GET") {
       const result = await readResource(
         p,
@@ -21,7 +22,7 @@ async function handle(
         Object.fromEntries(new URL(request.url).searchParams),
         path[1],
       );
-      if (path[0] === "export")
+      if (path[0] === "export") {
         return new Response(result as string, {
           headers: {
             "Content-Type": "text/csv; charset=utf-8",
@@ -30,6 +31,7 @@ async function handle(
             "Cache-Control": "private, no-store",
           },
         });
+      }
       return json(result);
     }
     return json(

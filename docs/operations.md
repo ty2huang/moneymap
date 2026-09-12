@@ -2,13 +2,81 @@
 
 ## Deploy to Vercel
 
-1. Create a Vercel project for this repository, using the Next.js preset and Node 24. Link it with `vercel link` after logging in.
+1. Create a Vercel project for this repository, using the Next.js preset and Node 24. Log in and link the local checkout with `vercel link`; verify that it points to the intended project before deploying.
 2. Use distinct development/preview and production Supabase projects. Never point preview deployments at production financial data.
-3. Link the intended project and apply `supabase/migrations` with `pnpm run db:migrate`. Configure the restricted application login and Supabase Auth/Realtime as described in the README.
-4. Configure the public Supabase settings, `APP_URL`, `DATABASE_URL`, `MONEYMAP_MASTER_KEYS`, `MONEYMAP_ACTIVE_KEY_VERSION`, and `OAUTH_AUDIENCE` in Vercel. Do not deploy `DATABASE_ADMIN_URL` or test variables. The master key map is a server-only secret, never a `NEXT_PUBLIC_` value.
-5. Match application, database, and authentication regions where feasible. Configure exact OAuth callback origins. Use a stable preview origin for OAuth testing; arbitrary preview URLs are not automatically trusted.
-6. Run type checks, domain/integration tests, the production build, and browser tests. Deploy with `vercel --prod` only against the intended project.
-7. Smoke-test real sign-in, join approval, CRUD, realtime changes across two users, analytics refresh, personal-token revocation, and OAuth/MCP consent. Check unauthenticated API requests return no financial data.
+3. Log in to the Supabase CLI, link the intended project, and apply `supabase/migrations`:
+
+```sh
+supabase login
+supabase link --project-ref <project-ref>
+pnpm run db:migrate
+```
+
+The migration creates the restricted `moneymap_app` role and its grants, but deliberately creates it as `NOLOGIN`. It does not set a password, and rerunning it does not change the login state or password of an existing role. After the migration succeeds, provision the application login from a privileged database session, such as the production Supabase SQL Editor:
+
+```sql
+ALTER ROLE moneymap_app
+  WITH LOGIN
+  PASSWORD 'generate-a-strong-unique-password'
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOINHERIT
+  NOBYPASSRLS;
+```
+
+Use a different generated password for each environment. Do not put the password in Git, a migration file, or a client-visible variable. Verify the role before configuring the app:
+
+```sql
+SELECT rolname, rolcanlogin, rolsuper, rolbypassrls
+FROM pg_roles
+WHERE rolname = 'moneymap_app';
+```
+
+The expected values are `rolcanlogin = true`, `rolsuper = false`, and `rolbypassrls = false`.
+
+4. Configure Supabase Auth, Realtime, and the custom access-token hook as
+   described in the README. Store the OAuth audience as the exact application
+   origin from a privileged SQL session after applying the migrations:
+
+```sql
+INSERT INTO webapp.oauth_configuration (singleton, audience)
+VALUES (true, 'https://money.example')
+ON CONFLICT (singleton) DO UPDATE
+SET audience = EXCLUDED.audience;
+
+SELECT audience
+FROM webapp.oauth_configuration
+WHERE singleton;
+```
+
+Use the real origin for each environment and verify that the query returns the
+same value as `APP_URL`. Configure the exact application origin and
+`/auth/callback` redirect. A stable preview origin is recommended for OAuth
+testing; arbitrary Vercel preview URLs are not automatically trusted.
+
+5. Configure these Vercel environment variables separately for Preview and Production:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `APP_URL`
+- `DATABASE_URL`
+- `MONEYMAP_MASTER_KEYS`
+- `MONEYMAP_ACTIVE_KEY_VERSION`
+
+`DATABASE_URL` must use the password-protected `moneymap_app` login, not
+`postgres`, a table owner, `service_role`, or a role with `BYPASSRLS`.
+URL-encode special characters in the password when constructing the connection
+string. Do not deploy `DATABASE_ADMIN_URL`, `TEST_DATABASE_URL`, or other test
+variables. `MONEYMAP_MASTER_KEYS` is server-only and must never use a
+`NEXT_PUBLIC_` name.
+
+6. Match application, database, and authentication regions where feasible. Run
+   type checks, domain/integration tests, the production build, and browser
+   tests. Deploy with `vercel --prod` only against the intended project.
+7. Smoke-test real sign-in, join approval, CRUD, realtime changes across two
+   users, analytics refresh, personal-token revocation, and OAuth/MCP consent.
+   Check unauthenticated API requests return no financial data.
 
 The build uses webpack explicitly because Turbopack's CSS worker requires local port permissions that are unavailable in some sandboxed environments. This does not change the application runtime.
 

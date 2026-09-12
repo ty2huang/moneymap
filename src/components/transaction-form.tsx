@@ -3,10 +3,11 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { DatePicker } from "./ui/date-picker";
 import { Field, Select, ErrorMessage } from "./ui/fields";
-import { api } from "@/lib/client";
+import { api, browserToday } from "@/lib/client";
 import type { Snapshot, Transaction, Transfer } from "@/domain/types";
-import { decimal, today, money, minor } from "@/domain/money";
+import { decimal, money, minor } from "@/domain/money";
 import { received, isReceipt } from "@/domain/ledger";
 export function TransactionForm({
   snapshot,
@@ -35,7 +36,7 @@ export function TransactionForm({
     );
   const { register, handleSubmit, watch, setValue } = useForm({
     defaultValues: {
-      date: duplicate || !existing ? today(household.timezone) : existing.date,
+      date: duplicate || !existing ? browserToday() : existing.date,
       categoryId: receipt
         ? (income?.id ?? "")
         : (tx?.categoryId ??
@@ -149,9 +150,11 @@ export function TransactionForm({
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Date">
-          <Input type="date" required {...register("date")} />
-        </Field>
+        <DatePicker
+          label="Date"
+          value={watch("date")}
+          onChange={(value) => setValue("date", value, { shouldDirty: true })}
+        />
         <Field label={transfer ? "From account" : "Financial account"}>
           <Select
             required

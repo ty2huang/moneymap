@@ -22,13 +22,14 @@ async function toolResult(fn: () => Promise<unknown>) {
 }
 export async function POST(request: Request) {
   try {
-    if (!request.headers.has("authorization"))
+    if (!request.headers.has("authorization")) {
       return new Response(null, {
         status: 401,
         headers: {
           "WWW-Authenticate": `Bearer resource_metadata="${process.env.APP_URL}/.well-known/oauth-protected-resource"`,
         },
       });
+    }
     const p = await authenticate(request);
     const server = new McpServer({ name: "MoneyMap", version: "1.0.0" });
     server.registerTool(
@@ -77,11 +78,12 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     const response = failure(e);
-    if (response.status === 401)
+    if (response.status === 401) {
       response.headers.set(
         "WWW-Authenticate",
         `Bearer resource_metadata="${process.env.APP_URL}/.well-known/oauth-protected-resource"`,
       );
+    }
     return response;
   }
 }

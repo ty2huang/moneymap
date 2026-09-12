@@ -17,6 +17,7 @@
     "db:new": "supabase migration new",
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
+    "auth:configure": "node --env-file=.env.local --import tsx scripts/configure-oauth-audience.ts",
     "format": "prettier --write .",
     "keys:rotate": "tsx scripts/rotate-keys.ts"
   },

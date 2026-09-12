@@ -52,7 +52,6 @@ export type Ledger = {
 export type Household = {
   id: string;
   currency: "CAD" | "USD";
-  timezone: string;
   revision: number;
 };
 export type Member = {
@@ -76,5 +75,7 @@ export function ensure(
   code = "INVALID",
   status = 400,
 ): asserts condition {
-  if (!condition) throw new DomainError(code, message, status);
+  if (!condition) {
+    throw new DomainError(code, message, status);
+  }
 }

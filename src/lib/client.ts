@@ -25,7 +25,9 @@ export async function api<T>(
     cache: "no-store",
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error?.message ?? "Request failed.");
+  if (!response.ok) {
+    throw new Error(value.error?.message ?? "Request failed.");
+  }
   return value as T;
 }
 export function download(filename: string, text: string, type = "text/csv") {
@@ -35,4 +37,11 @@ export function download(filename: string, text: string, type = "text/csv") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+export function browserToday() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

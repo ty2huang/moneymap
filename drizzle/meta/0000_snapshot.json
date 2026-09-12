@@ -620,12 +620,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "timezone": {
-          "name": "timezone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -653,10 +647,6 @@
         "households_revision_check": {
           "name": "households_revision_check",
           "value": "\"webapp\".\"households\".\"revision\" >= 0"
-        },
-        "households_timezone_check": {
-          "name": "households_timezone_check",
-          "value": "\"webapp\".\"households\".\"timezone\" <> ''"
         }
       },
       "isRLSEnabled": false

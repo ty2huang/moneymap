@@ -94,7 +94,7 @@ export async function readResource(
       amount: decimal(a.amount, currency),
     })),
   }));
-  if (resource === "export")
+  if (resource === "export") {
     return csv([
       [
         "Date",
@@ -119,6 +119,7 @@ export async function readResource(
         t.comments,
       ]),
     ]);
+  }
   const data =
     resource === "transactions"
       ? publicTransactions

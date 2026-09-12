@@ -27,11 +27,16 @@ export function aggregate(
     periods: string[] = [];
   const cursor = new Date(f.from + "T00:00:00Z");
   cursor.setUTCDate(1);
-  if (f.period === "year") cursor.setUTCMonth(0);
+  if (f.period === "year") {
+    cursor.setUTCMonth(0);
+  }
   while (cursor.toISOString().slice(0, 10) <= f.to) {
     periods.push(cursor.toISOString().slice(0, f.period === "year" ? 4 : 7));
-    if (f.period === "year") cursor.setUTCFullYear(cursor.getUTCFullYear() + 1);
-    else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    if (f.period === "year") {
+      cursor.setUTCFullYear(cursor.getUTCFullYear() + 1);
+    } else {
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
   }
   const groups = new Map<string, Report["rows"][number]>();
   let income = 0,
@@ -42,8 +47,9 @@ export function aggregate(
       t.date < f.from ||
       t.date > f.to ||
       (f.accountId && t.accountId !== f.accountId)
-    )
+    ) {
       continue;
+    }
     const c = ledger.categories.find((c) => c.id === t.categoryId)!;
     const sub = ledger.categories.find((c) => c.id === t.subcategoryId);
     const groupId = f.group === "category" ? c.id : (sub?.id ?? c.id);

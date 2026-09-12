@@ -99,7 +99,6 @@ export function demoSnapshot(): Snapshot {
     household: {
       id: "20000000-0000-4000-8000-000000000001",
       currency: "USD",
-      timezone: "UTC",
       revision: 1,
     },
     member: {

@@ -1,5 +1,9 @@
 Do not worry about backward compatibility. This project is not being used in production yet.
 
+Do not run database migrations or start the dev server automatically. Give the user instructions if database migrations are needed or if the dev server is not running.
+
+Write readable code with proper line breaks. The existing code might be a poor example of this.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

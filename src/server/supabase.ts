@@ -17,12 +17,13 @@ export async function supabaseServer() {
       cookies: {
         getAll: () => jar.getAll(),
         setAll: (values) => {
-          for (const { name, value, options } of values)
+          for (const { name, value, options } of values) {
             try {
               jar.set(name, value, options);
             } catch {
               /* Server components cannot set cookies; route handlers refresh sessions. */
             }
+          }
         },
       },
     },

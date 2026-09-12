@@ -3,6 +3,7 @@ import { demoSnapshot } from "../fixtures";
 import { aggregate } from "../../src/domain/analytics";
 import { applyCommand } from "../../src/domain/ledger";
 import type { ReportInput } from "../../src/domain/contracts";
+
 function backend() {
   let snapshot = demoSnapshot(),
     fail = false,
@@ -83,7 +84,9 @@ function backend() {
         if (params.has("report")) {
           reports++;
           const captured = structuredClone(snapshot);
-          if (hold) await hold();
+          if (hold) {
+            await hold();
+          }
           if (fail) {
             await route.fulfill({
               status: 500,
@@ -99,11 +102,14 @@ function backend() {
               captured.household.revision,
             ),
           });
-        } else await route.fulfill({ json: snapshot });
+        } else {
+          await route.fulfill({ json: snapshot });
+        }
       });
     },
   };
 }
+
 async function openDashboard(page: Page) {
   await page.goto("/");
   await expect(
@@ -111,6 +117,40 @@ async function openDashboard(page: Page) {
   ).toBeVisible();
   await expect(page.getByText("Last refreshed")).toBeVisible();
 }
+
+test("Escape dismisses a dropdown before its transaction dialog", async ({
+  page,
+  context,
+}) => {
+  const b = backend();
+  await b.attach(context);
+  await openDashboard(page);
+  await page.getByRole("button", { name: "Transactions", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add transaction", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog");
+  const category = dialog.getByRole("combobox", {
+    name: "Category",
+    exact: true,
+  });
+  await category.click();
+  await expect
+    .poll(() => category.evaluate((element) => element.matches(":open")))
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => category.evaluate((element) => element.matches(":open")))
+    .toBe(false);
+  await category.click();
+  await page.getByRole("option", { name: "Food", exact: true }).click();
+  await expect(category.locator("option:checked")).toHaveText("Food");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
 test("unconfigured installation clearly explains setup", async ({ page }) => {
   await page.route("**/api/session", (route) =>
     route.fulfill({ json: { configured: false } }),
@@ -121,6 +161,7 @@ test("unconfigured installation clearly explains setup", async ({ page }) => {
     page.getByRole("link", { name: /Continue with Google/ }),
   ).toHaveCount(0);
 });
+
 test("dashboard, responsive layout, transaction entry and duplication", async ({
   page,
   context,
@@ -185,6 +226,7 @@ test("dashboard, responsive layout, transaction entry and duplication", async ({
   });
   expect(errors).toEqual([]);
 });
+
 test("compact navigation and report ranges", async ({ page, context }) => {
   const b = backend();
   await b.attach(context);
@@ -252,6 +294,7 @@ test("compact navigation and report ranges", async ({ page, context }) => {
   ).toBe(true);
   await page.screenshot({ path: "test-results/dashboard-custom-mobile.png" });
 });
+
 test("focus and reconnect without changes keep the report current", async ({
   page,
   context,
@@ -320,6 +363,7 @@ test("explicit refresh, failure/retry, and change during refresh", async ({
     page.getByText("Updates available", { exact: false }),
   ).toHaveCount(0);
 });
+
 test("two browsers recover shared changes without refreshing analytics automatically", async ({
   browser,
 }) => {

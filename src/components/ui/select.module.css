@@ -1,0 +1,81 @@
+/* Keep native selection, validation, and form registration while styling the
+   browser's top-layer picker. Unsupported browsers retain the native menu. */
+@supports (appearance: base-select) {
+  .select,
+  .select::picker(select) {
+    appearance: base-select;
+  }
+
+  .select {
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .select::picker-icon {
+    display: none;
+  }
+
+  .select:open {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgb(183 237 156 / 12%);
+  }
+
+  .select::picker(select) {
+    min-width: anchor-size(width);
+    max-width: calc(100vw - 2rem);
+    max-height: min(22rem, 60dvh);
+    margin-block: 8px;
+    padding: 6px;
+    overflow-y: auto;
+    border: 1px solid var(--input);
+    border-radius: 16px;
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 16px 40px -8px rgb(0 0 0 / 50%);
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+
+  .select option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 40px;
+    margin: 2px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .select option:checked {
+    background: rgb(183 237 156 / 12%);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .select option:not(:disabled):hover,
+  .select option:focus-visible {
+    background: var(--muted);
+    outline: 1px solid var(--input);
+    outline-offset: -1px;
+  }
+
+  .select option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--primary);
+  }
+
+  .select option:disabled {
+    color: var(--muted-foreground);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

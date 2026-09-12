@@ -10,8 +10,7 @@ export default defineConfig({
   webServer: externalBaseURL
     ? undefined
     : {
-        command:
-          "pnpm run start --hostname 127.0.0.1 --port 3100",
+        command: "pnpm run start --hostname 127.0.0.1 --port 3100",
         url: baseURL,
         reuseExistingServer: false,
         timeout: 120000,

@@ -27,14 +27,6 @@ export async function createHousehold(p: Principal, input: unknown) {
   const x = z
     .object({
       currency: z.enum(["CAD", "USD"]),
-      timezone: z.string().refine((v) => {
-        try {
-          new Intl.DateTimeFormat("en", { timeZone: v });
-          return true;
-        } catch {
-          return false;
-        }
-      }),
     })
     .parse(input);
   return asUser(p.userId, async (tx) => {
@@ -139,13 +131,14 @@ export async function householdAction(p: Principal, input: unknown) {
       return { url: `${process.env.APP_URL}/?invite=${token}` };
     }
     ensure(x.id || x.action === "leave", "Select a record.");
-    if (x.action === "revoke-invite")
+    if (x.action === "revoke-invite") {
       await tx
         .update(t.invitations)
         .set({ revoked: true })
         .where(
           and(eq(t.invitations.id, x.id!), eq(t.invitations.householdId, h)),
         );
+    }
     if (x.action === "approve" || x.action === "reject") {
       const [request] = await tx
         .select()
@@ -176,12 +169,12 @@ export async function householdAction(p: Principal, input: unknown) {
         .where(eq(t.members.householdId, h));
       const member = members.find((m) => m.userId === userId);
       ensure(member, "Member not found.");
-      if (x.action === "promote")
+      if (x.action === "promote") {
         await tx
           .update(t.members)
           .set({ role: "owner" })
           .where(eq(t.members.userId, userId));
-      else {
+      } else {
         if (x.action === "leave" && members.length === 1) {
           // The household lock held by authorized serializes membership changes.
           // Foreign keys remove all household data in this same transaction.

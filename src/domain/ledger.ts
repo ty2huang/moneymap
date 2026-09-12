@@ -58,7 +58,7 @@ export function applyCommand(
   }
   if (command.type.endsWith(".delete")) {
     ensure(old, "Record not found", "NOT_FOUND", 404);
-    if (resource === "account")
+    if (resource === "account") {
       ensure(
         !s.transactions.some((t) => t.accountId === d.id) &&
           !s.transfers.some(
@@ -66,6 +66,7 @@ export function applyCommand(
           ),
         "This account is used. Archive it instead.",
       );
+    }
     if (resource === "category") {
       const c = s.categories.find((c) => c.id === d.id)!;
       ensure(!c.builtin, "Prebuilt categories cannot be removed.");
@@ -77,11 +78,12 @@ export function applyCommand(
         "This category is used or has subcategories. Hide it instead.",
       );
     }
-    if (resource === "transaction")
+    if (resource === "transaction") {
       ensure(
         received(s, d.id!) === 0,
         "Remove reimbursement allocations before deleting this expense.",
       );
+    }
     list.splice(
       list.findIndex((x) => x.id === d.id),
       1,
@@ -92,11 +94,15 @@ export function applyCommand(
     version = (old?.version ?? 0) + 1;
   const put = <T extends { id: string }>(items: T[], item: T) => {
     const at = items.findIndex((x) => x.id === item.id);
-    if (at < 0) items.push(item);
-    else items[at] = item;
+    if (at < 0) {
+      items.push(item);
+    } else {
+      items[at] = item;
+    }
   };
-  if (command.type === "account.save")
+  if (command.type === "account.save") {
     put(s.accounts, { ...command.data, id, version });
+  }
   if (command.type === "category.save") {
     const x = command.data,
       previous = s.categories.find((c) => c.id === id),
@@ -111,11 +117,12 @@ export function applyCommand(
         "Prebuilt names cannot change.",
       );
     }
-    if (x.parentId)
+    if (x.parentId) {
       ensure(
         parent && !parent.parentId && parent.kind === x.kind,
         "Select a matching parent category.",
       );
+    }
     ensure(
       !s.categories.some(
         (c) =>
@@ -197,11 +204,12 @@ export function applyCommand(
         Number.isSafeInteger(amount) && amount <= 1_000_000_000_000,
         "Receipt total is too large.",
       );
-    } else
+    } else {
       ensure(
         allocations.length === 0,
         "Only Income → Refund may contain allocations.",
       );
+    }
     ensure(amount !== 0, "Amount cannot be zero.");
     ensure(
       Math.abs(reimbursable) <= Math.abs(amount) &&

@@ -22,7 +22,7 @@ import { outstanding, received } from "@/domain/ledger";
 import { api, download } from "@/lib/client";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Input } from "./ui/input";
+import { DatePicker } from "./ui/date-picker";
 import { Select, Field, ErrorMessage } from "./ui/fields";
 import { Dialog } from "./ui/dialog";
 import { Confirm } from "./ui/confirm";
@@ -270,20 +270,22 @@ export function Transactions({
       </div>
       <Card className="p-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Field label="From">
-            <Input
-              type="date"
-              value={filters.from}
-              onChange={(e) => update("from", e.target.value)}
-            />
-          </Field>
-          <Field label="To">
-            <Input
-              type="date"
-              value={filters.to}
-              onChange={(e) => update("to", e.target.value)}
-            />
-          </Field>
+          <DatePicker
+            label="From"
+            placeholder="Start date"
+            value={filters.from}
+            max={filters.to || undefined}
+            clearable
+            onChange={(value) => update("from", value)}
+          />
+          <DatePicker
+            label="To"
+            placeholder="End date"
+            value={filters.to}
+            min={filters.from || undefined}
+            clearable
+            onChange={(value) => update("to", value)}
+          />
           <Field label="Account">
             <Select
               value={filters.accountId}

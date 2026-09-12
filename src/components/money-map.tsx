@@ -22,8 +22,6 @@ import {
 } from "lucide-react";
 import { api, supabaseBrowser } from "@/lib/client";
 import type { Snapshot, Member } from "@/domain/types";
-import { cityFromTimezone } from "@/domain/location";
-import { CityInput } from "./city-input";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -87,7 +85,9 @@ function App() {
     void client.invalidateQueries({ queryKey: ["session"] });
   }
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      return;
+    }
     const checkForChanges = () => {
       void client.invalidateQueries();
     };
@@ -97,11 +97,12 @@ function App() {
     };
     window.addEventListener("online", checkForChanges);
     window.addEventListener("focus", checkForChanges);
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL)
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       return () => {
         window.removeEventListener("online", checkForChanges);
         window.removeEventListener("focus", checkForChanges);
       };
+    }
     const supabase = supabaseBrowser();
     const channels = [
       supabase
@@ -109,7 +110,7 @@ function App() {
         .on("broadcast", { event: "changed" }, update)
         .subscribe(),
     ];
-    if (householdId)
+    if (householdId) {
       channels.push(
         supabase
           .channel("household:" + householdId, {
@@ -117,11 +118,16 @@ function App() {
           })
           .on("broadcast", { event: "changed" }, update)
           .subscribe((status: string) => {
-            if (status === "SUBSCRIBED") checkForChanges();
+            if (status === "SUBSCRIBED") {
+              checkForChanges();
+            }
           }),
       );
+    }
     const listener = supabase.auth.onAuthStateChange((event: string) => {
-      if (event === "SIGNED_OUT") client.clear();
+      if (event === "SIGNED_OUT") {
+        client.clear();
+      }
     });
     return () => {
       channels.forEach((c) => void supabase.removeChannel(c));
@@ -131,21 +137,26 @@ function App() {
     };
   }, [userId, householdId, client]);
   useEffect(() => {
-    if (hasNoMembership) client.removeQueries({ queryKey: ["state"] });
+    if (hasNoMembership) {
+      client.removeQueries({ queryKey: ["state"] });
+    }
   }, [hasNoMembership, client]);
-  if (session.isPending)
+  if (session.isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         Loading MoneyMap…
       </div>
     );
-  if (!session.data?.userId)
+  }
+  if (!session.data?.userId) {
     return <Welcome configured={session.data?.configured !== false} />;
-  if (!session.data.member)
+  }
+  if (!session.data.member) {
     return (
       <Onboarding requests={session.data.requests ?? []} onChanged={changed} />
     );
-  if (!state.data || state.error)
+  }
+  if (!state.data || state.error) {
     return (
       <div className="mx-auto max-w-lg p-12">
         <ErrorMessage message={state.error?.message} />
@@ -162,6 +173,7 @@ function App() {
         </Button>
       </div>
     );
+  }
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[232px_1fr]">
       <aside
@@ -177,9 +189,7 @@ function App() {
           <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Map size={23} />
           </div>
-          <span className="text-xl font-semibold tracking-tight">
-            MoneyMap
-          </span>
+          <span className="text-xl font-semibold tracking-tight">MoneyMap</span>
           <Button
             ref={menuButton}
             variant="outline"
@@ -211,7 +221,9 @@ function App() {
                   setPage(id);
                   setMenuOpen(false);
                   menuButton.current?.focus();
-                  if (id === "transactions") setDrill(undefined);
+                  if (id === "transactions") {
+                    setDrill(undefined);
+                  }
                 }}
                 aria-current={page === id ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm transition-colors ${page === id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
@@ -227,8 +239,7 @@ function App() {
               Shared household
             </div>
             <div className="ml-4 text-xs text-muted-foreground">
-              {state.data.household.currency} ·{" "}
-              {cityFromTimezone(state.data.household.timezone)}
+              {state.data.household.currency}
             </div>
             <Button
               className="mt-4 w-full"
@@ -365,9 +376,6 @@ function Onboarding({
   onChanged: () => void;
 }) {
   const [currency, setCurrency] = useState<"CAD" | "USD">("USD"),
-    [timezone, setTimezone] = useState(
-      Intl.DateTimeFormat().resolvedOptions().timeZone,
-    ),
     [token, setToken] = useState(
       new URLSearchParams(window.location.search).get("invite") ?? "",
     ),
@@ -402,7 +410,7 @@ function Onboarding({
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              void submit("create", { currency, timezone });
+              void submit("create", { currency });
             }}
           >
             <Field label="Currency">
@@ -414,7 +422,6 @@ function Onboarding({
                 <option value="USD">USD</option>
               </Select>
             </Field>
-            <CityInput timezone={timezone} onChange={setTimezone} />
             <Button type="submit" disabled={busy}>
               Create household
             </Button>

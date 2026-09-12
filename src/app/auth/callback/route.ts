@@ -7,13 +7,14 @@ export async function GET(request: Request) {
   if (code) {
     const client = await supabaseServer();
     const { error } = await client.auth.exchangeCodeForSession(code);
-    if (!error)
+    if (!error) {
       return Response.redirect(
         new URL(
           safeReturnPath(next, process.env.APP_URL!),
           process.env.APP_URL,
         ),
       );
+    }
   }
   return Response.redirect(`${process.env.APP_URL}/?authError=1`);
 }

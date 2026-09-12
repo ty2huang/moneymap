@@ -4,8 +4,9 @@ import { sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 let connection: ReturnType<typeof postgres> | undefined;
 export function db() {
-  if (!process.env.DATABASE_URL)
+  if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not configured");
+  }
   connection ??= postgres(process.env.DATABASE_URL, { prepare: false, max: 5 });
   return drizzle(connection, { schema });
 }

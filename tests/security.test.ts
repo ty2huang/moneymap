@@ -13,8 +13,9 @@ describe("HTTP security boundaries", () => {
       "//evil.example/",
       "/\\evil.example/",
       "javascript:alert(1)",
-    ])
+    ]) {
       expect(safeReturnPath(path, origin)).toBe("/");
+    }
   });
   it("does not fall back to cookies for malformed Authorization headers", async () => {
     await expect(

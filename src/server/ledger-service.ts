@@ -142,21 +142,30 @@ export async function persist(
     encrypt(value, key, `${h}:${id}:${field}`);
   // Remove allocations first so receipt deletion and reallocation remain atomic.
   await tx.delete(t.allocations).where(eq(t.allocations.householdId, h));
-  for (const x of before.transactions)
-    if (!after.transactions.some((a) => a.id === x.id))
+  for (const x of before.transactions) {
+    if (!after.transactions.some((a) => a.id === x.id)) {
       await tx.delete(t.transactions).where(eq(t.transactions.id, x.id));
-  for (const x of before.transfers)
-    if (!after.transfers.some((a) => a.id === x.id))
+    }
+  }
+  for (const x of before.transfers) {
+    if (!after.transfers.some((a) => a.id === x.id)) {
       await tx.delete(t.transfers).where(eq(t.transfers.id, x.id));
-  for (const x of before.categories)
-    if (!after.categories.some((a) => a.id === x.id))
+    }
+  }
+  for (const x of before.categories) {
+    if (!after.categories.some((a) => a.id === x.id)) {
       await tx.delete(t.categories).where(eq(t.categories.id, x.id));
-  for (const x of before.accounts)
-    if (!after.accounts.some((a) => a.id === x.id))
+    }
+  }
+  for (const x of before.accounts) {
+    if (!after.accounts.some((a) => a.id === x.id)) {
       await tx.delete(t.accounts).where(eq(t.accounts.id, x.id));
+    }
+  }
   for (const a of after.accounts) {
-    if (before.accounts.some((x) => x.id === a.id && x.version === a.version))
+    if (before.accounts.some((x) => x.id === a.id && x.version === a.version)) {
       continue;
+    }
     const row = {
       ...a,
       householdId: h,
@@ -169,8 +178,11 @@ export async function persist(
       .onConflictDoUpdate({ target: t.accounts.id, set: row });
   }
   for (const c of after.categories) {
-    if (before.categories.some((x) => x.id === c.id && x.version === c.version))
+    if (
+      before.categories.some((x) => x.id === c.id && x.version === c.version)
+    ) {
       continue;
+    }
     const row = { ...c, householdId: h };
     await tx
       .insert(t.categories)
@@ -180,8 +192,9 @@ export async function persist(
   for (const x of after.transactions) {
     if (
       before.transactions.some((a) => a.id === x.id && a.version === x.version)
-    )
+    ) {
       continue;
+    }
     const { allocations: _, ...data } = x;
     const row = {
       ...data,
@@ -195,8 +208,11 @@ export async function persist(
       .onConflictDoUpdate({ target: t.transactions.id, set: row });
   }
   for (const x of after.transfers) {
-    if (before.transfers.some((a) => a.id === x.id && a.version === x.version))
+    if (
+      before.transfers.some((a) => a.id === x.id && a.version === x.version)
+    ) {
       continue;
+    }
     const row = {
       ...x,
       householdId: h,
@@ -208,11 +224,13 @@ export async function persist(
       .values(row)
       .onConflictDoUpdate({ target: t.transfers.id, set: row });
   }
-  for (const x of after.transactions)
-    for (const a of x.allocations)
+  for (const x of after.transactions) {
+    for (const a of x.allocations) {
       await tx
         .insert(t.allocations)
         .values({ householdId: h, receiptId: x.id, ...a });
+    }
+  }
 }
 export async function snapshot(p: Principal) {
   return authorized(p, false, async (_tx, s) => s);
@@ -258,25 +276,22 @@ export async function mutate(
       .update(t.households)
       .set({ revision: s.household.revision + 1 })
       .where(eq(t.households.id, h));
-    await tx
-      .insert(t.audit)
-      .values({
-        id: crypto.randomUUID(),
+    await tx.insert(t.audit).values({
+      id: crypto.randomUUID(),
+      householdId: h,
+      userId: p.userId,
+      action: command.type,
+      recordId: command.data.id,
+      at: new Date().toISOString(),
+    });
+    if (idempotencyKey) {
+      await tx.insert(t.idempotency).values({
         householdId: h,
         userId: p.userId,
-        action: command.type,
-        recordId: command.data.id,
-        at: new Date().toISOString(),
+        key: idempotencyKey,
+        requestHash,
       });
-    if (idempotencyKey)
-      await tx
-        .insert(t.idempotency)
-        .values({
-          householdId: h,
-          userId: p.userId,
-          key: idempotencyKey,
-          requestHash,
-        });
+    }
     return { revision: s.household.revision + 1, replayed: false };
   });
 }

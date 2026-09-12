@@ -6,12 +6,16 @@ import postgres from "postgres";
 
 const containerName = "moneymap-tests";
 
-for (const file of [".env.local", ".env"])
-  if (existsSync(file)) loadEnvFile(file);
+for (const file of [".env.local", ".env"]) {
+  if (existsSync(file)) {
+    loadEnvFile(file);
+  }
+}
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
-if (!databaseUrl)
+if (!databaseUrl) {
   throw new Error("Set TEST_DATABASE_URL in .env.local or the shell.");
+}
 
 async function isDatabaseReady() {
   const client = postgres(databaseUrl!, {
@@ -31,7 +35,9 @@ async function isDatabaseReady() {
 
 async function waitForDatabase(attempts: number) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (await isDatabaseReady()) return true;
+    if (await isDatabaseReady()) {
+      return true;
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
@@ -47,7 +53,11 @@ function docker(args: string[], capture = false) {
 async function runTests() {
   const child = spawn(
     process.execPath,
-    [resolve("node_modules", "vitest", "vitest.mjs"), "run", "tests/postgres.test.ts"],
+    [
+      resolve("node_modules", "vitest", "vitest.mjs"),
+      "run",
+      "tests/postgres.test.ts",
+    ],
     { stdio: "inherit", env: process.env },
   );
   return new Promise<number>((resolve, reject) => {
@@ -59,18 +69,20 @@ async function runTests() {
 async function main() {
   let stopContainer = false;
   if (!(await waitForDatabase(process.env.CI ? 20 : 2))) {
-    if (process.env.CI)
+    if (process.env.CI) {
       throw new Error("The CI PostgreSQL service did not become ready.");
+    }
 
     const url = new URL(databaseUrl!);
     if (
       !["127.0.0.1", "localhost"].includes(url.hostname) ||
       url.pathname !== "/moneymap_test" ||
       !url.port
-    )
+    ) {
       throw new Error(
         "Automatic startup is restricted to a local moneymap_test database.",
       );
+    }
 
     const inspection = docker(
       ["inspect", "--format", "{{.State.Running}}", containerName],
@@ -79,7 +91,9 @@ async function main() {
     if (inspection.status === 0) {
       if (inspection.stdout.trim() !== "true") {
         const started = docker(["start", containerName]);
-        if (started.status !== 0) throw new Error("Could not start test database.");
+        if (started.status !== 0) {
+          throw new Error("Could not start test database.");
+        }
         stopContainer = true;
       }
     } else {
@@ -97,14 +111,20 @@ async function main() {
         `127.0.0.1:${url.port}:5432`,
         "postgres:17-alpine",
       ]);
-      if (started.status !== 0) throw new Error("Could not create test database.");
+      if (started.status !== 0) {
+        throw new Error("Could not create test database.");
+      }
       stopContainer = true;
     }
 
     console.log("Waiting for the PostgreSQL integration database...");
     if (!(await waitForDatabase(60))) {
-      if (stopContainer) docker(["stop", containerName]);
-      throw new Error("The PostgreSQL integration database did not become ready.");
+      if (stopContainer) {
+        docker(["stop", containerName]);
+      }
+      throw new Error(
+        "The PostgreSQL integration database did not become ready.",
+      );
     }
   } else {
     console.log("Using the existing PostgreSQL integration database.");

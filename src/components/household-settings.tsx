@@ -9,9 +9,10 @@ import { Field, Select, ErrorMessage } from "./ui/fields";
 import { Confirm } from "./ui/confirm";
 import type { householdInfo } from "@/server/household-service";
 import type { connections } from "@/server/connections";
-import { cityFromTimezone } from "@/domain/location";
 function applicationHostname(uri?: string) {
-  if (!uri) return "";
+  if (!uri) {
+    return "";
+  }
   try {
     return new URL(uri).hostname.replace(/^www\./, "");
   } catch {
@@ -32,8 +33,12 @@ export function HouseholdSettings({ onChanged }: { onChanged: () => void }) {
         action,
         id,
       });
-      if (result.url) setInvite(result.url);
-      if (action !== "leave") await query.refetch();
+      if (result.url) {
+        setInvite(result.url);
+      }
+      if (action !== "leave") {
+        await query.refetch();
+      }
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -225,7 +230,9 @@ export function ConnectionsSettings() {
         permission,
         days,
       });
-      if (result.token) setToken(result.token);
+      if (result.token) {
+        setToken(result.token);
+      }
       await query.refetch();
     } catch (e) {
       setError((e as Error).message);

@@ -55,7 +55,9 @@ export function MonthPicker({
     <P.Root
       open={open}
       onOpenChange={(nextOpen) => {
-        if (nextOpen) setYear(selected.year);
+        if (nextOpen) {
+          setYear(selected.year);
+        }
         setOpen(nextOpen);
       }}
     >
@@ -64,7 +66,7 @@ export function MonthPicker({
           type="button"
           aria-label={`${ariaLabel ?? "Choose month"}: ${label}`}
           className={cn(
-            "group flex h-11 w-full min-w-0 items-center rounded-xl border border-border bg-card/70 text-left text-sm font-medium text-foreground shadow-sm outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-muted/45 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20",
+            "group flex h-11 w-full min-w-0 items-center rounded-xl border border-input/80 bg-card text-left text-sm font-medium text-foreground shadow-sm outline-none transition-[border-color,background-color,box-shadow] hover:border-muted-foreground/60 hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15 data-[state=open]:border-primary data-[state=open]:ring-3 data-[state=open]:ring-primary/15",
             className,
           )}
         >
@@ -82,7 +84,7 @@ export function MonthPicker({
           align="start"
           sideOffset={8}
           collisionPadding={16}
-          className="z-50 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border bg-card p-3 shadow-2xl shadow-black/35 outline-none"
+          className="z-50 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-input bg-card p-3 shadow-[0_16px_40px_-8px_rgb(0_0_0/50%)] outline-none"
         >
           <div className="mb-2 flex items-center justify-between px-1">
             <button

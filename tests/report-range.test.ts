@@ -8,7 +8,7 @@ describe("report ranges", () => {
       to: "2026-01-15",
     });
   });
-  it("ends year to date on the household's current date", () => {
+  it("ends year to date on the provided current date", () => {
     expect(reportRange("ytd", "2026-09-07")).toEqual({
       from: "2026-01-01",
       to: "2026-09-07",

@@ -21,11 +21,11 @@ import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Field, Select, ErrorMessage } from "./ui/fields";
 import { MonthPicker } from "./ui/month-picker";
-import { api, download } from "@/lib/client";
+import { api, browserToday, download } from "@/lib/client";
 import type { Snapshot } from "@/domain/types";
 import type { Report } from "@/domain/analytics";
 import { csv } from "@/domain/analytics";
-import { money, decimal, today, digits } from "@/domain/money";
+import { money, decimal, digits } from "@/domain/money";
 import { monthEnd, reportRange, type ReportRange } from "@/domain/report-range";
 export type Drill = {
   from: string;
@@ -48,7 +48,7 @@ export function Dashboard({
   const [lastRefreshRange, setLastRefreshRange] =
     useState<ReportRange>("last12");
   const [filters, setFilters] = useState(() => ({
-    ...reportRange("last12", today(household.timezone)),
+    ...reportRange("last12", browserToday()),
     period: "month",
     group: "category",
     accountId: "",
@@ -71,17 +71,25 @@ export function Dashboard({
     setError("");
     try {
       const params = new URLSearchParams({ report: "1", ...f });
-      if (!f.accountId) params.delete("accountId");
+      if (!f.accountId) {
+        params.delete("accountId");
+      }
       const result = await api<Report>("/api/state?" + params);
-      if (request !== requestId.current) return;
+      if (request !== requestId.current) {
+        return;
+      }
       setReport(result);
       setReportFilters(f);
       setLastRefreshRange(rangeRef.current);
       setLoadedEvents(captured);
     } catch (e) {
-      if (request === requestId.current) setError((e as Error).message);
+      if (request === requestId.current) {
+        setError((e as Error).message);
+      }
     } finally {
-      if (request === requestId.current) setLoading(false);
+      if (request === requestId.current) {
+        setLoading(false);
+      }
     }
   }, []);
   useEffect(() => {
@@ -142,19 +150,24 @@ export function Dashboard({
       ...f,
       ...(value === "custom"
         ? { to: monthEnd(f.to.slice(0, 7)) }
-        : reportRange(value, today(household.timezone))),
+        : reportRange(value, browserToday())),
     }));
   }
   function changeMonth(field: "from" | "to", month: string) {
-    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return;
+    }
     setFilters((f) => {
       const next = {
         ...f,
         [field]: field === "from" ? `${month}-01` : monthEnd(month),
       };
       if (next.from > next.to) {
-        if (field === "from") next.to = monthEnd(month);
-        else next.from = `${month}-01`;
+        if (field === "from") {
+          next.to = monthEnd(month);
+        } else {
+          next.from = `${month}-01`;
+        }
       }
       return next;
     });

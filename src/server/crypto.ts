@@ -32,9 +32,13 @@ function master(version: string) {
     string,
     string
   >;
-  if (!keys[version]) throw new Error("Encryption key is not configured");
+  if (!keys[version]) {
+    throw new Error("Encryption key is not configured");
+  }
   const key = Buffer.from(keys[version], "base64");
-  if (key.length !== 32) throw new Error("Invalid key length");
+  if (key.length !== 32) {
+    throw new Error("Invalid key length");
+  }
   return key;
 }
 export function wrapKey(key: Buffer, householdId: string) {

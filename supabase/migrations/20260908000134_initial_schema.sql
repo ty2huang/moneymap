@@ -61,12 +61,10 @@ CREATE TABLE "webapp"."grants" (
 CREATE TABLE "webapp"."households" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"currency" text NOT NULL,
-	"timezone" text NOT NULL,
 	"revision" integer DEFAULT 0 NOT NULL,
 	"wrappedKey" text NOT NULL,
 	CONSTRAINT "households_currency_check" CHECK ("webapp"."households"."currency" in ('CAD', 'USD')),
-	CONSTRAINT "households_revision_check" CHECK ("webapp"."households"."revision" >= 0),
-	CONSTRAINT "households_timezone_check" CHECK ("webapp"."households"."timezone" <> '')
+	CONSTRAINT "households_revision_check" CHECK ("webapp"."households"."revision" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "webapp"."idempotency" (

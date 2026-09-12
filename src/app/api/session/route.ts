@@ -3,7 +3,9 @@ import { configured, supabaseServer } from "@/server/supabase";
 import { session } from "@/server/household-service";
 import { json, failure } from "@/server/http";
 export async function GET() {
-  if (!configured()) return json({ configured: false });
+  if (!configured()) {
+    return json({ configured: false });
+  }
   try {
     return json({ configured: true, ...(await session(await authenticate())) });
   } catch (e) {

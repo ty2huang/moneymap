@@ -38,12 +38,14 @@ export async function authenticate(request?: Request): Promise<Principal> {
   }
   if (bearer) {
     const issuer = process.env.NEXT_PUBLIC_SUPABASE_URL + "/auth/v1";
+    const appUrl = process.env.APP_URL;
+    ensure(appUrl, "APP_URL is required.", "INTERNAL", 500);
     jwks ??= createRemoteJWKSet(new URL(issuer + "/.well-known/jwks.json"));
     let payload;
     try {
       ({ payload } = await jwtVerify(bearer, jwks, {
         issuer,
-        audience: process.env.OAUTH_AUDIENCE ?? process.env.APP_URL,
+        audience: new URL(appUrl).origin,
       }));
     } catch {
       ensure(false, "Invalid access token.", "UNAUTHORIZED", 401);
