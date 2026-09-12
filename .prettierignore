@@ -3,5 +3,7 @@ node_modules
 .local
 supabase/migrations
 package-lock.json
+pnpm-lock.yaml
+drizzle/meta
 playwright-report
 test-results

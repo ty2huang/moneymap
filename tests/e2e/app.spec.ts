@@ -118,6 +118,33 @@ async function openDashboard(page: Page) {
   await expect(page.getByText("Last refreshed")).toBeVisible();
 }
 
+async function selectMonth(
+  page: Page,
+  label: "Start month" | "End month",
+  year: number,
+  month: string,
+) {
+  const trigger = page.getByRole("button", { name: new RegExp(`^${label}:`) });
+  await trigger.click();
+  const picker = page.getByRole("dialog");
+  const months = picker.getByRole("group", { name: /^Months in / });
+  const name = await months.getAttribute("aria-label");
+  let visibleYear = Number(name!.replace("Months in ", ""));
+
+  while (visibleYear !== year) {
+    visibleYear += visibleYear < year ? 1 : -1;
+    await picker
+      .getByRole("button", { name: `Show ${visibleYear}`, exact: true })
+      .click();
+  }
+
+  await months.getByRole("button", { name: month, exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(trigger).toHaveAccessibleName(
+    new RegExp(`^${label}: ${month}\\w* ${year}$`),
+  );
+}
+
 test("Escape dismisses a dropdown before its transaction dialog", async ({
   page,
   context,
@@ -174,8 +201,8 @@ test("dashboard, responsive layout, transaction entry and duplication", async ({
   await page
     .getByRole("combobox", { name: "Time range", exact: true })
     .selectOption("custom");
-  await page.getByLabel("Start month", { exact: true }).fill("2026-01");
-  await page.getByLabel("End month", { exact: true }).fill("2026-12");
+  await selectMonth(page, "Start month", 2026, "Jan");
+  await selectMonth(page, "End month", 2026, "Dec");
   await expect(page.getByText("$4,510.00", { exact: true })).toBeVisible();
   await page.screenshot({
     path: "test-results/dashboard-desktop.png",
@@ -231,6 +258,7 @@ test("compact navigation and report ranges", async ({ page, context }) => {
   const b = backend();
   await b.attach(context);
   await page.setViewportSize({ width: 674, height: 794 });
+  await page.clock.setFixedTime(new Date("2026-09-07T12:00:00Z"));
   await openDashboard(page);
   await expect(
     page.getByRole("navigation", { name: "Workspace" }),
@@ -242,7 +270,6 @@ test("compact navigation and report ranges", async ({ page, context }) => {
   await expect(page.getByLabel("Breakdown", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Account", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Money out", { exact: true })).toBeVisible();
-  await page.clock.setFixedTime(new Date("2026-09-07T12:00:00Z"));
   await page
     .getByRole("combobox", { name: "Time range", exact: true })
     .selectOption("ytd");
@@ -258,8 +285,8 @@ test("compact navigation and report ranges", async ({ page, context }) => {
   await page
     .getByRole("combobox", { name: "Time range", exact: true })
     .selectOption("custom");
-  await page.getByLabel("Start month").fill("2024-02");
-  await page.getByLabel("End month").fill("2024-02");
+  await selectMonth(page, "Start month", 2024, "Feb");
+  await selectMonth(page, "End month", 2024, "Feb");
   const [customRequest] = await Promise.all([
     page.waitForRequest((r) => r.url().includes("to=2024-02-29")),
     page.getByRole("button", { name: "Refresh", exact: true }).click(),
