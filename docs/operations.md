@@ -238,15 +238,15 @@ than promoting a preview artifact built against a different Supabase project.
 
 ### Deployment troubleshooting
 
-| Symptom                                            | Check                                                                                                                                                                         |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Google reports a redirect mismatch                 | Google's redirect URI must be Supabase's provider callback                                                                                                                    |
-| Sign-in returns to localhost or another deployment | `APP_URL`, Supabase Site URL, and allowed app callback                                                                                                                        |
-| Writes return an origin error                      | Open the exact origin configured in `APP_URL`                                                                                                                                 |
-| Database login or role errors                      | Pooler host, `moneymap_app.<project-ref>` username, encoded password, and role login state                                                                                    |
-| OAuth bearer tokens are rejected                   | Active asymmetric signing key, token hook, audience, and a fresh OAuth token                                                                                                  |
-| Encrypted fields cannot be read                    | Correct master-key versions for the database                                                                                                                                  |
-| Live updates are missing                           | Realtime enabled, broadcast triggers/policy installed, and both users authorized                                                                                              |
+| Symptom                                            | Check                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Google reports a redirect mismatch                 | Google's redirect URI must be Supabase's provider callback                                             |
+| Sign-in returns to localhost or another deployment | `APP_URL`, Supabase Site URL, and allowed app callback                                                 |
+| Writes return an origin error                      | Open the exact origin configured in `APP_URL`                                                          |
+| Database login or role errors                      | Pooler host, `moneymap_app.<project-ref>` username, encoded password, and role login state             |
+| OAuth bearer tokens are rejected                   | Active asymmetric signing key, token hook, audience, and a fresh OAuth token                           |
+| Encrypted fields cannot be read                    | Correct master-key versions for the database                                                           |
+| Live updates are missing                           | Realtime enabled, broadcast triggers/policy installed, and both users authorized                       |
 | Wrong pnpm version during build                    | Commit `pnpm-lock.yaml`, leave Install Command automatic, and check the selected version in build logs |
 
 Use Vercel build/runtime logs and Supabase Auth logs to investigate; follow the
