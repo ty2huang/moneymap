@@ -1,12 +1,8 @@
 import postgres from "postgres";
+import { getAppUrl } from "../src/server/app-url";
 
 function requiredAppOrigin() {
-  const value = process.env.APP_URL;
-  if (!value) {
-    throw new Error("APP_URL is required.");
-  }
-
-  const url = new URL(value);
+  const url = new URL(getAppUrl());
   if (
     !["http:", "https:"].includes(url.protocol) ||
     url.username ||

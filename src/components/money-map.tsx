@@ -306,6 +306,8 @@ function App() {
   );
 }
 function Welcome({ configured }: { configured: boolean }) {
+  const [signInError, setSignInError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
   const next =
     typeof window !== "undefined"
       ? window.location.pathname + window.location.search
@@ -348,6 +350,65 @@ function Welcome({ configured }: { configured: boolean }) {
                 ) && (
                   <ErrorMessage message="Sign-in could not be completed. Please try again." />
                 )}
+              {process.env.NODE_ENV === "development" && (
+                <form
+                  className="mt-6 space-y-4"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    const form = event.currentTarget;
+                    const values = new FormData(form);
+                    setSigningIn(true);
+                    setSignInError("");
+                    try {
+                      await api("/auth/password", {
+                        email: values.get("email"),
+                        password: values.get("password"),
+                      });
+                      form.reset();
+                      // Reload this URL to retain invitation parameters and read the new cookies.
+                      window.location.reload();
+                    } catch (error) {
+                      setSignInError(
+                        error instanceof Error
+                          ? error.message
+                          : "Sign-in failed.",
+                      );
+                      setSigningIn(false);
+                    }
+                  }}
+                >
+                  <div className="mb-6 flex items-center gap-4">
+                    <hr className="flex-1 border-border" />
+                    <span className="text-xs text-muted-foreground">
+                      or continue with email
+                    </span>
+                    <hr className="flex-1 border-border" />
+                  </div>
+                  <Field label="Email">
+                    <Input
+                      name="email"
+                      type="email"
+                      autoComplete="username"
+                      placeholder="you@example.com"
+                      required
+                      disabled={signingIn}
+                    />
+                  </Field>
+                  <Field label="Password">
+                    <Input
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      disabled={signingIn}
+                    />
+                  </Field>
+                  <ErrorMessage message={signInError} />
+                  <Button className="w-full" type="submit" disabled={signingIn}>
+                    {signingIn ? "Signing in…" : "Sign in with email"}
+                  </Button>
+                </form>
+              )}
             </>
           ) : (
             <div className="rounded-lg border border-border p-4">

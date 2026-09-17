@@ -18,7 +18,11 @@ export async function api<T>(
     headers: body
       ? {
           "Content-Type": "application/json",
-          "Idempotency-Key": crypto.randomUUID(),
+          // getRandomValues also works on HTTP LAN origins, unlike randomUUID.
+          "Idempotency-Key": Array.from(
+            crypto.getRandomValues(new Uint8Array(16)),
+            (byte) => byte.toString(16).padStart(2, "0"),
+          ).join(""),
         }
       : undefined,
     body: body ? JSON.stringify(body) : undefined,
