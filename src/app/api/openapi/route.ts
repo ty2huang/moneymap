@@ -5,6 +5,7 @@ import {
   transactionInput,
   transferInput,
 } from "@/domain/contracts";
+import { getAppUrl } from "@/server/app-url";
 export async function GET() {
   const schemas = {
     accounts: accountInput,
@@ -129,7 +130,7 @@ export async function GET() {
       description:
         "OAuth or personal bearer tokens. Read/write permissions are household-specific application grants. Never send minor-unit numbers as amounts.",
     },
-    servers: [{ url: process.env.APP_URL ?? "http://localhost:3000" }],
+    servers: [{ url: getAppUrl() }],
     security: [{ bearer: [] }],
     components: {
       securitySchemes: { bearer: { type: "http", scheme: "bearer" } },

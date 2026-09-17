@@ -39,20 +39,11 @@ Run these commands from the repository root.
 
 2. Start local Supabase and initialize the database.
 
-   Copy `.env.example` to `.env.local` if you haven't already. Google is enabled
-   in `supabase/config.toml`, so fill in these credentials before starting the
-   local stack. The remaining values can be configured in step 3:
-
-   ```dotenv
-   SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=<google-client-id>
-   SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=<google-client-secret>
-   ```
-
-   Create a Google Web application OAuth client as described in the
-   [Google setup guide](docs/operations.md#4-configure-google-sign-in-and-redirects),
-   using `http://localhost:3000` as the JavaScript origin and
-   `http://127.0.0.1:54321/auth/v1/callback` as the authorized redirect URI
-   for the default local stack. Add your account as a test user if needed.
+   Copy `.env.example` to `.env.local` if you haven't already. Local development
+   supports both email/password and Google sign-in. Google is enabled by default
+   in `supabase/config.toml`; set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and
+   `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` in `.env.local` before starting the stack.
+   Email/password sign-in does not use OAuth redirects or require an OAuth audience.
 
    ```sh
    pnpm run db:start
@@ -68,8 +59,7 @@ Run these commands from the repository root.
 
 3. Configure the app environment and database login.
 
-   Keep the Google credentials in `.env.local` and fill in the remaining values
-   below in the same file.
+   Fill in the values below in `.env.local`.
 
    Open the Studio URL printed by `supabase status` and use its SQL Editor to
    provision the local application role:
@@ -90,7 +80,8 @@ Run these commands from the repository root.
    | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
    | `NEXT_PUBLIC_SUPABASE_URL`             | API / project URL, normally `http://127.0.0.1:54321`                                                                                                               |
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key from the local status output, not a hosted project's key                                                                                           |
-   | `APP_URL`                              | `http://localhost:3000`, without a trailing slash                                                                                                                  |
+   | `APP_HOST`                             | Optional local hostname or LAN address used by the fallback app URL, such as `192.168.1.25`.                                                                       |
+   | `APP_URL`                              | Optional locally; defaults to `http://<APP_HOST>:<PORT>` or `http://localhost:3000` when neither is set. Set the deployed origin explicitly.                       |
    | `DATABASE_ADMIN_URL`                   | Database URL from status, normally `postgresql://postgres:postgres@127.0.0.1:54322/postgres`                                                                       |
    | `DATABASE_URL`                         | Same database host, port, and database, but use `moneymap_app` and the password set above: `postgresql://moneymap_app:<encoded-password>@127.0.0.1:54322/postgres` |
    | `MONEYMAP_MASTER_KEYS`                 | JSON map containing a generated encryption key, as shown below                                                                                                     |
@@ -116,16 +107,11 @@ Run these commands from the repository root.
    Keep the key while retaining the database. For existing encrypted records, use
    the existing key map or the [key rotation flow](docs/operations.md#key-rotation).
 
-4. Configure the local OAuth audience:
-
-   ```sh
-   pnpm run auth:configure
-   ```
-
-   This reads `APP_URL` and `DATABASE_ADMIN_URL` from `.env.local`, stores the
-   origin in `webapp.oauth_configuration`, and verifies it. Run it after migrations
-   and environment setup, and again after a database reset or origin change.
-   The local token hook and OAuth server are enabled in `supabase/config.toml`.
+4. Create test users in local Supabase Studio under **Authentication > Users**.
+   Use **Add user > Create new user**, choose an email and password, and mark the
+   email confirmed. Create separate users for household membership testing.
+   These are real Auth users; no authentication or database access checks are
+   bypassed. Keep their passwords out of Git. Recreate users after a database reset.
 
 5. Start the app:
 
@@ -133,7 +119,36 @@ Run these commands from the repository root.
    pnpm run dev
    ```
 
-   Open `http://localhost:3000` and sign in with Google.
+   Open the URL printed by Next and use **Sign in with email**. The form and
+   endpoint are available only in development, not with `pnpm run start`.
+   No `auth:configure` command or OAuth redirects are needed for this flow.
+
+   For parallel worktrees, leave `APP_URL` blank and let Next select an available
+   port, or use `pnpm run dev --port 3101`. The app URL uses that selected port.
+   For a browser on another machine, set `APP_HOST` in `.env.local` to a reachable
+   hostname or LAN address, and use a browser-reachable `NEXT_PUBLIC_SUPABASE_URL`
+   for session refresh and Realtime. Use disposable test credentials over LAN HTTP.
+   Worktrees sharing a Supabase database share test data. Browser cookies are not
+   isolated by port: use separate browser profiles to test different users.
+
+### Optional OAuth integration testing
+
+Reserve a stable app origin for OAuth tests. Google sign-in is already enabled
+in `supabase/config.toml`. Configure its client ID and secret environment
+variables, and follow the
+[Google setup guide](docs/operations.md#4-configure-google-sign-in-and-redirects).
+Allow the app's `/auth/callback` URL in Supabase. Restart the local Supabase stack
+after changing its configuration; a database reset is not needed for that change.
+Hosted Supabase Auth settings are configured separately in the dashboard, as
+described in the deployment guide; this local config file does not need a
+separate production version.
+
+For REST/MCP OAuth, configure the Supabase Site URL for the consent page and run
+`PORT=3000 pnpm run auth:configure` for the reserved origin. This reads `.env.local`
+and stores the resolved app origin in `webapp.oauth_configuration`. There is one
+OAuth audience per database: do not rerun this for each feature worktree. Repeat
+it only after a database reset or an intentional OAuth origin change. Ordinary
+email/password sign-in and personal API tokens do not need this audience.
 
 ## API and MCP
 

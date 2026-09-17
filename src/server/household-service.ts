@@ -8,6 +8,7 @@ import { asUser, setHousehold } from "./database";
 import { newKey, unwrapKey, hash } from "./crypto";
 import { authorized, persist } from "./ledger-service";
 import { firstParty, type Principal } from "./auth";
+import { getAppUrl } from "./app-url";
 export async function session(p: Principal) {
   firstParty(p);
   return asUser(p.userId, async (tx) => {
@@ -128,7 +129,7 @@ export async function householdAction(p: Principal, input: unknown) {
         hash: hash(token),
         expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
       });
-      return { url: `${process.env.APP_URL}/?invite=${token}` };
+      return { url: `${getAppUrl()}/?invite=${token}` };
     }
     ensure(x.id || x.action === "leave", "Select a record.");
     if (x.action === "revoke-invite") {

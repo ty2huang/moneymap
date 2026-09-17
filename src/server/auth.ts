@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "./database";
 import { hash } from "./crypto";
 import { supabaseServer } from "./supabase";
+import { getAppUrl } from "./app-url";
 import { ensure } from "@/domain/types";
 export type Principal = {
   userId: string;
@@ -38,8 +39,7 @@ export async function authenticate(request?: Request): Promise<Principal> {
   }
   if (bearer) {
     const issuer = process.env.NEXT_PUBLIC_SUPABASE_URL + "/auth/v1";
-    const appUrl = process.env.APP_URL;
-    ensure(appUrl, "APP_URL is required.", "INTERNAL", 500);
+    const appUrl = getAppUrl();
     jwks ??= createRemoteJWKSet(new URL(issuer + "/.well-known/jwks.json"));
     let payload;
     try {
@@ -77,7 +77,7 @@ export function sameOrigin(request: Request) {
   )
     return;
   ensure(
-    request.headers.get("origin") === new URL(process.env.APP_URL!).origin,
+    request.headers.get("origin") === new URL(getAppUrl()).origin,
     "Request origin is not allowed.",
     "FORBIDDEN",
     403,

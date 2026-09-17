@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  allowedDevOrigins: ["10.0.0.89", "raspberrypi"],
   poweredByHeader: false,
   async headers() {
     return [
