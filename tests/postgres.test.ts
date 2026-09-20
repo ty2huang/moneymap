@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
@@ -18,6 +18,20 @@ import { POST as mcpPost } from "../src/app/mcp/route";
 import { GET as restGet } from "../src/app/api/v1/[...path]/route";
 import * as tables from "../src/db/schema";
 import { expense, receipt } from "./fixtures";
+
+// These tests exercise database authorization without a Next request or a live
+// OAuth provider. Provider failures and ordering have separate unit coverage.
+vi.mock("../src/server/supabase", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/server/supabase")>()),
+  supabaseServer: async () => ({
+    auth: {
+      oauth: {
+        revokeGrant: async () => ({ data: {}, error: null }),
+      },
+    },
+  }),
+}));
+
 const url = process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)(
   "PostgreSQL integration — isolated moneymap_test only",
@@ -165,6 +179,124 @@ describe.skipIf(!url)(
       ).rejects.toThrow(/permission/);
       await connectionAction(owner, { action: "revoke-token", id: token.id });
       await expect(snapshot(p)).rejects.toThrow(/permission/);
+    });
+    it("lets former members request fresh approval after removal or leaving", async () => {
+      const host = { userId: crypto.randomUUID() };
+      const guest = { userId: crypto.randomUUID() };
+      const { id: householdId } = await createHousehold(host, {
+        currency: "USD",
+      });
+
+      const join = async () => {
+        const invite = (await householdAction(host, { action: "invite" })) as {
+          url: string;
+        };
+        const request = await requestJoin(guest, {
+          token: new URL(invite.url).searchParams.get("invite"),
+        });
+        await expect(snapshot(guest)).rejects.toThrow(/join/);
+        expect(
+          (await householdInfo(host)).requests.find((r) => r.id === request.id)
+            ?.status,
+        ).toBe("pending");
+        await householdAction(host, {
+          action: "approve",
+          id: String(request.id),
+        });
+        expect((await snapshot(guest)).household.id).toBe(householdId);
+      };
+
+      await join();
+      await householdAction(host, { action: "remove", id: guest.userId });
+      await join();
+      await householdAction(guest, { action: "leave" });
+      await join();
+    });
+    it("records the actual record IDs for create, edit, and delete audits", async () => {
+      const actor = { userId: crypto.randomUUID() };
+      const { id: householdId } = await createHousehold(actor, {
+        currency: "USD",
+      });
+      for (const name of ["Checking", "Savings"]) {
+        await mutate(actor, {
+          type: "account.save",
+          data: { name, bankName: "Bank", type: "checking", archived: false },
+        });
+      }
+      await mutate(actor, {
+        type: "category.save",
+        data: {
+          name: "Custom",
+          kind: "expense",
+          parentId: null,
+          hidden: false,
+        },
+      });
+      let s = await snapshot(actor);
+      await mutate(actor, expense(s.ledger));
+      await mutate(actor, {
+        type: "transfer.save",
+        data: {
+          date: "2026-01-10",
+          sourceId: s.ledger.accounts[0].id,
+          destinationId: s.ledger.accounts[1].id,
+          amount: "10",
+          description: "",
+          comments: "",
+        },
+      });
+      s = await snapshot(actor);
+      const created = await admin`
+        select action, "recordId" from webapp.audit
+        where "householdId"=${householdId}
+      `;
+      expect(created).toHaveLength(5);
+      expect(created).toEqual(
+        expect.arrayContaining([
+          ...s.ledger.accounts.map((a) => ({
+            action: "account.save",
+            recordId: a.id,
+          })),
+          {
+            action: "category.save",
+            recordId: s.ledger.categories.find((c) => !c.builtin)!.id,
+          },
+          { action: "transaction.save", recordId: s.ledger.transactions[0].id },
+          { action: "transfer.save", recordId: s.ledger.transfers[0].id },
+        ]),
+      );
+
+      const transfer = s.ledger.transfers[0];
+      await mutate(actor, {
+        type: "transfer.delete",
+        data: { id: transfer.id, version: transfer.version },
+      });
+      const account = s.ledger.accounts[0];
+      await mutate(actor, {
+        type: "account.save",
+        data: {
+          id: account.id,
+          version: account.version,
+          name: "Renamed",
+          bankName: account.bankName,
+          type: account.type,
+          archived: account.archived,
+        },
+      });
+      const audits = await admin`
+        select action, "recordId" from webapp.audit
+        where "householdId"=${householdId}
+      `;
+      expect(audits).toHaveLength(7);
+      expect(
+        audits.filter(
+          (a) => a.action === "account.save" && a.recordId === account.id,
+        ),
+      ).toHaveLength(2);
+      expect(audits).toContainEqual({
+        action: "transfer.delete",
+        recordId: transfer.id,
+      });
     });
     it("OAuth grants enforce read/write and revocation", async () => {
       const s = await snapshot(owner),

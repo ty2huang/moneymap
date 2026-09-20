@@ -32,3 +32,10 @@ export async function asUser<T>(userId: string, fn: (tx: Tx) => Promise<T>) {
 export async function setHousehold(tx: Tx, id: string) {
   await tx.execute(sql`select set_config('app.household_id',${id},true)`);
 }
+
+// Transaction-scoped locks coordinate provider operations across server instances.
+export async function lockOAuthUser(tx: Tx, userId: string) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext('moneymap.oauth'), hashtext(${userId}))`,
+  );
+}

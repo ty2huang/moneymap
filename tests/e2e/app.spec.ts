@@ -1,5 +1,5 @@
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
-import { demoSnapshot } from "../fixtures";
+import { demoSnapshot, expense } from "../fixtures";
 import { aggregate } from "../../src/domain/analytics";
 import { applyCommand } from "../../src/domain/ledger";
 import type { ReportInput } from "../../src/domain/contracts";
@@ -187,6 +187,28 @@ test("unconfigured installation clearly explains setup", async ({ page }) => {
   await expect(
     page.getByRole("link", { name: /Continue with Google/ }),
   ).toHaveCount(0);
+});
+
+test("session failures show an error and can be retried", async ({ page }) => {
+  let attempts = 0;
+  await page.route("**/api/session", (route) => {
+    attempts++;
+    if (attempts === 1) {
+      return route.fulfill({
+        status: 500,
+        json: { error: { message: "Session service unavailable" } },
+      });
+    }
+    return route.fulfill({ json: { configured: true } });
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText(
+    "Session service unavailable",
+  );
+  await expect(page.getByText("Welcome to MoneyMap")).toHaveCount(0);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByText("Welcome to MoneyMap")).toBeVisible();
 });
 
 test("dashboard, responsive layout, transaction entry and duplication", async ({
@@ -496,4 +518,163 @@ test("reimbursement receipt allocates the remaining balance", async ({
   await expect(
     page.getByText("Shared groceries", { exact: true }),
   ).toBeVisible();
+});
+
+test("reimbursement receipt only offers expenses on or before its date", async ({
+  page,
+  context,
+}) => {
+  const b = backend();
+  await b.attach(context);
+  await openDashboard(page);
+  await page.getByRole("button", { name: "Transactions", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Record reimbursement", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel(/Shared groceries/)).toBeVisible();
+  await dialog.getByRole("button", { name: /^Date/ }).click();
+  await page.getByLabel("Enter a date").fill("2025-12-31");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog.getByLabel(/Shared groceries/)).toHaveCount(0);
+  await expect(
+    dialog.getByText("No outstanding reimbursable expenses."),
+  ).toBeVisible();
+});
+
+test("creating a token ignores duplicate synchronous submissions", async ({
+  page,
+  context,
+}) => {
+  const b = backend();
+  await b.attach(context);
+  let creates = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => (release = resolve));
+  await context.route("**/api/connections", async (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ json: { tokens: [], grants: [] } });
+    }
+    creates++;
+    await pending;
+    return route.fulfill({ json: { token: "mm_secret" } });
+  });
+
+  await openDashboard(page);
+  await page.getByRole("button", { name: "Connections", exact: true }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Automation");
+  await page
+    .getByRole("button", { name: "Create token" })
+    .evaluate((button) => {
+      const form = (button as HTMLButtonElement).form!;
+      form.requestSubmit();
+      form.requestSubmit();
+    });
+  await expect(
+    page.getByRole("button", { name: "Creating…", exact: true }),
+  ).toBeDisabled();
+  await expect.poll(() => creates).toBe(1);
+  release();
+  await expect(page.locator('input[value="mm_secret"]')).toBeVisible();
+});
+
+test("editing a receipt date preserves allocations until explicitly cleared", async ({
+  page,
+  context,
+}) => {
+  const b = backend();
+  b.snapshot.ledger = applyCommand(
+    b.snapshot.ledger,
+    expense(b.snapshot.ledger, "100", "40", "2026-01-20"),
+    "USD",
+    b.snapshot.member.userId,
+  );
+  const laterExpense = b.snapshot.ledger.transactions.at(-1)!;
+  laterExpense.description = "Later expense";
+  const receipt = b.snapshot.ledger.transactions.find(
+    (transaction) => transaction.allocations.length > 0,
+  )!;
+  receipt.allocations.push({ expenseId: laterExpense.id, amount: 4000 });
+  receipt.amount += 4000;
+  await b.attach(context);
+  await openDashboard(page);
+  await page.getByRole("button", { name: "Transactions", exact: true }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Reimbursement" })
+    .getByRole("button", { name: "Edit transaction", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: /^Date/ }).click();
+  await page.getByLabel("Enter a date").fill("2026-01-15");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog.getByLabel(/Later expense/)).toHaveValue("40.00");
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Change the receipt date or clear that allocation",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Save changes" }),
+  ).toBeDisabled();
+  expect(
+    b.snapshot.ledger.transactions.find((t) => t.id === receipt.id)?.amount,
+  ).toBe(5000);
+  await dialog.getByLabel(/Later expense/).fill("");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(dialog).toHaveCount(0);
+  const saved = b.snapshot.ledger.transactions.find(
+    (t) => t.id === receipt.id,
+  )!;
+  expect(saved.amount).toBe(1000);
+  expect(saved.allocations).toEqual(receipt.allocations.slice(0, 1));
+});
+
+test("Supabase sign-out events reload the authenticated workspace", async ({
+  page,
+  context,
+}) => {
+  test.skip(
+    !process.env.NEXT_PUBLIC_SUPABASE_URL,
+    "Requires a configured Supabase browser client",
+  );
+  await page.addInitScript(() => {
+    const channels: BroadcastChannel[] = [];
+    const Original = window.BroadcastChannel;
+    Object.assign(window, { authTestChannels: channels });
+    window.BroadcastChannel = class extends Original {
+      constructor(name: string) {
+        super(name);
+        channels.push(this);
+      }
+    };
+  });
+  const b = backend();
+  await b.attach(context);
+  await openDashboard(page);
+  await context.route("**/api/session", (route) =>
+    route.fulfill({
+      status: 401,
+      json: { error: { message: "Session expired" } },
+    }),
+  );
+  await page.evaluate(() => {
+    const channels = (
+      window as unknown as { authTestChannels: BroadcastChannel[] }
+    ).authTestChannels;
+    const authChannel = channels.find((channel) =>
+      channel.name.endsWith("-auth-token"),
+    );
+    if (!authChannel)
+      throw new Error("Supabase auth broadcast channel was not initialized");
+    authChannel.dispatchEvent(
+      new MessageEvent("message", {
+        data: { event: "SIGNED_OUT", session: null },
+      }),
+    );
+  });
+  await expect(
+    page.getByRole("heading", { name: "Welcome to MoneyMap" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Household overview" }),
+  ).toHaveCount(0);
 });

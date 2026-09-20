@@ -26,11 +26,12 @@ export function aggregate(
   const f = reportInput.parse(raw),
     periods: string[] = [];
   const cursor = new Date(f.from + "T00:00:00Z");
+  const end = Date.parse(f.to + "T00:00:00Z");
   cursor.setUTCDate(1);
   if (f.period === "year") {
     cursor.setUTCMonth(0);
   }
-  while (cursor.toISOString().slice(0, 10) <= f.to) {
+  while (cursor.getTime() <= end) {
     periods.push(cursor.toISOString().slice(0, f.period === "year" ? 4 : 7));
     if (f.period === "year") {
       cursor.setUTCFullYear(cursor.getUTCFullYear() + 1);

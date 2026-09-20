@@ -20,7 +20,7 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { api, supabaseBrowser } from "@/lib/client";
+import { ApiError, api, supabaseBrowser } from "@/lib/client";
 import type { Snapshot, Member } from "@/domain/types";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -127,6 +127,8 @@ function App() {
     const listener = supabase.auth.onAuthStateChange((event: string) => {
       if (event === "SIGNED_OUT") {
         client.clear();
+        // Clearing the query cache does not reset mounted query observers.
+        window.location.reload();
       }
     });
     return () => {
@@ -148,7 +150,28 @@ function App() {
       </div>
     );
   }
-  if (!session.data?.userId) {
+  if (
+    session.error &&
+    (!(session.error instanceof ApiError) || session.error.status !== 401)
+  ) {
+    return (
+      <div className="mx-auto max-w-lg p-12">
+        <ErrorMessage message={session.error.message} />
+        <p>Your session could not be checked.</p>
+        <Button
+          variant="outline"
+          onClick={() => void session.refetch()}
+          disabled={session.isFetching}
+        >
+          {session.isFetching ? "Trying again…" : "Try again"}
+        </Button>
+      </div>
+    );
+  }
+  if (
+    (session.error instanceof ApiError && session.error.status === 401) ||
+    !session.data?.userId
+  ) {
     return <Welcome configured={session.data?.configured !== false} />;
   }
   if (!session.data.member) {
@@ -241,19 +264,7 @@ function App() {
             <div className="ml-4 text-xs text-muted-foreground">
               {state.data.household.currency}
             </div>
-            <Button
-              className="mt-4 w-full"
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                await api("/api/session", undefined, "DELETE");
-                client.clear();
-                window.location.assign("/");
-              }}
-            >
-              <LogOut size={14} />
-              Sign out
-            </Button>
+            <SignOutButton className="mt-4 w-full" />
           </div>
         </div>
       </aside>
@@ -302,6 +313,44 @@ function App() {
           {page === "connections" && <ConnectionsSettings />}
         </div>
       </main>
+    </div>
+  );
+}
+function SignOutButton({ className }: { className?: string }) {
+  const client = useQueryClient();
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function signOut() {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/session", undefined, "DELETE");
+      client.clear();
+      window.location.assign("/");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign-out failed.");
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+  return (
+    <div>
+      <Button
+        className={className}
+        variant="ghost"
+        size="sm"
+        disabled={busy}
+        onClick={() => void signOut()}
+      >
+        <LogOut size={14} />
+        {busy ? "Signing out…" : "Sign out"}
+      </Button>
+      <ErrorMessage message={error} />
     </div>
   );
 }
@@ -455,9 +504,12 @@ function Onboarding({
   }
   return (
     <main className="mx-auto max-w-4xl p-6 py-16">
-      <div className="mb-10 flex items-center gap-3 text-xl font-semibold">
-        <Map className="text-primary" />
-        MoneyMap
+      <div className="mb-10 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 text-xl font-semibold">
+          <Map className="text-primary" />
+          MoneyMap
+        </div>
+        <SignOutButton />
       </div>
       <h1 className="text-3xl font-semibold">Make yourself at home.</h1>
       <p className="mb-8 text-muted-foreground">

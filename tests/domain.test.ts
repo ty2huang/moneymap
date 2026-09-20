@@ -24,6 +24,30 @@ describe("exact money", () => {
   });
 });
 describe("financial workflows", () => {
+  it.each(["month", "year"] as const)(
+    "stops %s reports at the end of year 9999",
+    (period) => {
+      const report = aggregate(fixture().ledger, {
+        from: "9999-12-01",
+        to: "9999-12-31",
+        period,
+        group: "category",
+      });
+      expect(report.periods).toEqual([period === "month" ? "9999-12" : "9999"]);
+      expect(report.rows).toEqual([]);
+    },
+  );
+  it("keeps the maximum allowed monthly report bounded across year 9999", () => {
+    const report = aggregate(fixture().ledger, {
+      from: "9979-01-01",
+      to: "9999-12-31",
+      period: "month",
+      group: "category",
+    });
+    expect(report.periods).toHaveLength(252);
+    expect(report.periods[0]).toBe("9979-01");
+    expect(report.periods.at(-1)).toBe("9999-12");
+  });
   it("partial receipts settle one expense across months without double counting", () => {
     let l = fixture().ledger;
     l = applyCommand(l, expense(l), "USD", userId);

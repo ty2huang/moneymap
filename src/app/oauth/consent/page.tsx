@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/server/supabase";
+import { authorizationDetails } from "@/server/connections";
 import { ConsentForm } from "./ui";
 export default async function ConsentPage({
   searchParams,
@@ -20,8 +21,18 @@ export default async function ConsentPage({
         ),
     );
   }
-  const { data, error } =
-    await client.auth.oauth.getAuthorizationDetails(authorization_id);
+  const result = await authorizationDetails(
+    { userId: user.user.id },
+    authorization_id,
+  ).catch(() => null);
+  if (!result) {
+    return (
+      <p>
+        Application access could not be checked. Please reload to try again.
+      </p>
+    );
+  }
+  const { data, error } = result;
   if (error || !data) {
     return <p>Authorization request is invalid or expired.</p>;
   }

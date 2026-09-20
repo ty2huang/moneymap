@@ -92,6 +92,7 @@ export function Transactions({
     [l, filters],
   );
   async function remove(t: (typeof rows)[number]) {
+    setError("");
     try {
       await api("/api/state", {
         type: t.kind === "transfer" ? "transfer.delete" : "transaction.delete",

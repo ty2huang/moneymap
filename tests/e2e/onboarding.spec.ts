@@ -43,3 +43,45 @@ test("creates a household with its selected currency", async ({ page }) => {
     });
   expect(errors).toEqual([]);
 });
+
+test("users without a household can retry a failed sign-out", async ({
+  page,
+}) => {
+  let signedOut = false;
+  let attempts = 0;
+  await page.route("**/api/session", async (route) => {
+    if (route.request().method() === "DELETE") {
+      attempts++;
+      if (attempts === 1) {
+        await route.fulfill({
+          status: 500,
+          json: { error: { message: "Temporary sign-out failure" } },
+        });
+      } else {
+        signedOut = true;
+        await route.fulfill({ json: { ok: true } });
+      }
+      return;
+    }
+    await route.fulfill({
+      json: signedOut
+        ? { configured: true }
+        : {
+            configured: true,
+            userId: "onboarding-user",
+            member: null,
+            requests: [{ id: "request", status: "pending" }],
+          },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Temporary sign-out failure",
+  );
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to MoneyMap" }),
+  ).toBeVisible();
+  expect(attempts).toBe(2);
+});

@@ -4,15 +4,18 @@ import type { Ledger, Snapshot } from "@/domain/types";
 import { ensure } from "@/domain/types";
 import { applyCommand } from "@/domain/ledger";
 import type { Command } from "@/domain/contracts";
-import { asUser, setHousehold, type Tx } from "./database";
+import { asUser, lockOAuthUser, setHousehold, type Tx } from "./database";
 import { decrypt, encrypt, hash, unwrapKey } from "./crypto";
 import type { Principal } from "./auth";
 export async function authorized<T>(
   p: Principal,
   write: boolean,
   fn: (tx: Tx, s: Snapshot, key: Buffer) => Promise<T>,
+  options: { serializeOAuth?: boolean } = {},
 ): Promise<T> {
   return asUser(p.userId, async (tx) => {
+    // Always acquire the user lock before the household lock.
+    if (options.serializeOAuth) await lockOAuthUser(tx, p.userId);
     const [member] = await tx
       .select()
       .from(t.members)
@@ -69,7 +72,7 @@ export async function authorized<T>(
         token &&
           !token.revoked &&
           token.userId === p.userId &&
-          token.expiresAt > new Date().toISOString() &&
+          Date.parse(token.expiresAt) > Date.now() &&
           (!write || token.permission === "write"),
         "Token permission denied.",
         "FORBIDDEN",
@@ -265,11 +268,13 @@ export async function mutate(
         return { revision: s.household.revision, replayed: true };
       }
     }
+    const recordId = command.data.id ?? crypto.randomUUID();
     const after = applyCommand(
       s.ledger,
       command,
       s.household.currency,
       p.userId,
+      recordId,
     );
     await persist(tx, h, s.ledger, after, key);
     await tx
@@ -281,7 +286,7 @@ export async function mutate(
       householdId: h,
       userId: p.userId,
       action: command.type,
-      recordId: command.data.id,
+      recordId,
       at: new Date().toISOString(),
     });
     if (idempotencyKey) {
