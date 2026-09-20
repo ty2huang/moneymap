@@ -143,10 +143,13 @@ function App() {
       client.removeQueries({ queryKey: ["state"] });
     }
   }, [hasNoMembership, client]);
-  if (session.isPending) {
+  if (session.isPending || (session.data?.member && state.isPending)) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Loading MoneyMap…
+      <div
+        role="status"
+        className="flex min-h-screen items-center justify-center text-muted-foreground"
+      >
+        {session.isPending ? "Loading MoneyMap…" : "Opening your household…"}
       </div>
     );
   }
@@ -183,11 +186,7 @@ function App() {
     return (
       <div className="mx-auto max-w-lg p-12">
         <ErrorMessage message={state.error?.message} />
-        <p>
-          {state.isPending
-            ? "Opening your household…"
-            : "Your household could not be loaded."}
-        </p>
+        <p>Your household could not be loaded.</p>
         <Button
           variant="outline"
           onClick={() => void client.invalidateQueries()}
