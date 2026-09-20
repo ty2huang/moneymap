@@ -203,9 +203,9 @@ test("session failures show an error and can be retried", async ({ page }) => {
   });
 
   await page.goto("/");
-  await expect(page.getByRole("alert")).toContainText(
-    "Session service unavailable",
-  );
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Session service unavailable" }),
+  ).toBeVisible();
   await expect(page.getByText("Welcome to MoneyMap")).toHaveCount(0);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(page.getByText("Welcome to MoneyMap")).toBeVisible();

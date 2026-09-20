@@ -76,9 +76,9 @@ test("users without a household can retry a failed sign-out", async ({
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "Temporary sign-out failure",
-  );
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Temporary sign-out failure" }),
+  ).toHaveText("Temporary sign-out failure");
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Welcome to MoneyMap" }),
