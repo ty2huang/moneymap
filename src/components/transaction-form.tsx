@@ -68,16 +68,23 @@ export function TransactionForm({
     [saving, setSaving] = useState(false);
   const categoryId = watch("categoryId"),
     subcategoryId = watch("subcategoryId"),
+    transactionDate = watch("date"),
     refundMode = !transfer && isReceipt(ledger, { subcategoryId });
   const expenses = ledger.transactions.filter(
     (t) =>
-      t.reimbursable > 0 &&
-      ledger.categories.find((c) => c.id === t.categoryId)?.kind ===
-        "expense" &&
-      t.reimbursable -
-        received(ledger, t.id, duplicate ? undefined : existing?.id) >
-        0,
+      (allocations[t.id] && Number(allocations[t.id]) !== 0) ||
+      (t.reimbursable > 0 &&
+        t.date <= transactionDate &&
+        ledger.categories.find((c) => c.id === t.categoryId)?.kind ===
+          "expense" &&
+        t.reimbursable -
+          received(ledger, t.id, duplicate ? undefined : existing?.id) >
+          0),
   );
+  const allocationDateError =
+    refundMode && expenses.some((expense) => expense.date > transactionDate)
+      ? "A selected expense is dated after this receipt. Change the receipt date or clear that allocation."
+      : "";
   async function save(values: {
     date: string;
     categoryId: string;
@@ -93,6 +100,9 @@ export function TransactionForm({
     setError("");
     setSaving(true);
     try {
+      if (allocationDateError) {
+        throw new Error(allocationDateError);
+      }
       const base =
         existing && !duplicate
           ? { id: existing.id, version: existing.version }
@@ -119,7 +129,7 @@ export function TransactionForm({
             comments: values.comments,
             allocations: refundMode
               ? Object.entries(allocations)
-                  .filter(([, v]) => v && Number(v) !== 0)
+                  .filter(([, value]) => value && Number(value) !== 0)
                   .map(([expenseId, amount]) => ({ expenseId, amount }))
               : [],
           };
@@ -299,11 +309,11 @@ export function TransactionForm({
           {...register("comments")}
         />
       </Field>
-      <ErrorMessage message={error} />
+      <ErrorMessage message={allocationDateError || error} />
       <Button
         type="submit"
         className="w-full"
-        disabled={saving || accounts.length === 0}
+        disabled={saving || accounts.length === 0 || !!allocationDateError}
       >
         {saving
           ? "Saving…"

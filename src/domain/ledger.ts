@@ -32,6 +32,7 @@ export function applyCommand(
   raw: Command,
   currency: string,
   userId: string,
+  newRecordId: string = crypto.randomUUID(),
 ): Ledger {
   const command = commandSchema.parse(raw),
     s = structuredClone(original),
@@ -90,7 +91,7 @@ export function applyCommand(
     );
     return s;
   }
-  const id = d.id ?? crypto.randomUUID(),
+  const id = d.id ?? newRecordId,
     version = (old?.version ?? 0) + 1;
   const put = <T extends { id: string }>(items: T[], item: T) => {
     const at = items.findIndex((x) => x.id === item.id);

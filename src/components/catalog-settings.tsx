@@ -23,6 +23,7 @@ export function CatalogSettings({
     [error, setError] = useState("");
   const l = snapshot.ledger;
   async function remove(row: Account | Category) {
+    setError("");
     try {
       await api("/api/state", {
         type: kind + ".delete",

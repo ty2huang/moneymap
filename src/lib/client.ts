@@ -1,6 +1,15 @@
 "use client";
 import { createBrowserClient } from "@supabase/ssr";
 let client: ReturnType<typeof createBrowserClient> | undefined;
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 export function supabaseBrowser() {
   client ??= createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,9 +37,25 @@ export async function api<T>(
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
-  const value = await response.json();
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    throw new ApiError("Server returned an invalid response.", response.status);
+  }
   if (!response.ok) {
-    throw new Error(value.error?.message ?? "Request failed.");
+    throw new ApiError(
+      typeof value === "object" &&
+        value !== null &&
+        "error" in value &&
+        typeof value.error === "object" &&
+        value.error !== null &&
+        "message" in value.error &&
+        typeof value.error.message === "string"
+        ? value.error.message
+        : "Request failed.",
+      response.status,
+    );
   }
   return value as T;
 }

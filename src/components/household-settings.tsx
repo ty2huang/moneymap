@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/client";
 import { Button } from "./ui/button";
@@ -28,6 +28,7 @@ export function HouseholdSettings({ onChanged }: { onChanged: () => void }) {
     [error, setError] = useState(""),
     [invite, setInvite] = useState("");
   async function action(action: string, id?: string) {
+    setError("");
     try {
       const result = await api<{ url?: string }>("/api/household", {
         action,
@@ -220,8 +221,17 @@ export function ConnectionsSettings() {
     [token, setToken] = useState(""),
     [name, setName] = useState(""),
     [permission, setPermission] = useState("read"),
-    [days, setDays] = useState(30);
+    [days, setDays] = useState(30),
+    [pendingAction, setPendingAction] = useState<string>();
+  const busyRef = useRef(false);
+  const busy = pendingAction !== undefined;
   async function action(action: string, id?: string) {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setPendingAction(action);
+    setError("");
     try {
       const result = await api<{ token?: string }>("/api/connections", {
         action,
@@ -236,6 +246,9 @@ export function ConnectionsSettings() {
       await query.refetch();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      busyRef.current = false;
+      setPendingAction(undefined);
     }
   }
   return (
@@ -282,7 +295,9 @@ export function ConnectionsSettings() {
               onChange={(e) => setDays(Number(e.target.value))}
             />
           </Field>
-          <Button type="submit">Create token</Button>
+          <Button type="submit" disabled={busy}>
+            {pendingAction === "create-token" ? "Creating…" : "Create token"}
+          </Button>
         </form>
         {token && (
           <div className="mt-4">
@@ -315,7 +330,7 @@ export function ConnectionsSettings() {
                 title="Revoke this token?"
                 onConfirm={() => void action("revoke-token", t.id)}
               >
-                <Button size="sm" variant="outline">
+                <Button size="sm" variant="outline" disabled={busy}>
                   Revoke
                 </Button>
               </Confirm>
@@ -354,7 +369,7 @@ export function ConnectionsSettings() {
                   title={`Revoke ${name}'s access?`}
                   onConfirm={() => void action("revoke-grant", g.id)}
                 >
-                  <Button size="sm" variant="outline">
+                  <Button size="sm" variant="outline" disabled={busy}>
                     Revoke
                   </Button>
                 </Confirm>

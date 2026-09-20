@@ -1,0 +1,2 @@
+ALTER ROLE moneymap_app
+  WITH LOGIN PASSWORD '7de428177b4c478683b3dedece4db03ea42f89e53f946f12f4a9acfbb5016d9a';
