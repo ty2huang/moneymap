@@ -62,7 +62,6 @@ The migration creates the restricted `moneymap_app` role and its grants, but del
 ALTER ROLE moneymap_app
   WITH LOGIN
   PASSWORD 'generate-a-strong-unique-password'
-  NOSUPERUSER
   NOCREATEDB
   NOCREATEROLE
   NOINHERIT
