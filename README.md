@@ -16,7 +16,7 @@ MoneyMap is a TypeScript household finance app for shared budgeting, reimburseme
 - Next.js 16
 - React 19 + TypeScript
 - Supabase + PostgreSQL
-- Drizzle ORM
+- Drizzle schema and migration tooling
 - Vitest + Playwright
 
 ## Prerequisites
@@ -57,39 +57,32 @@ Run these commands from the repository root.
    - `supabase status` displays the local API URL, database URL, Studio URL, and
      API keys. Keep this output handy for the next step.
 
-3. Configure the app environment and database login.
+3. Configure the app environment.
 
-   Fill in the values below in `.env.local`.
-
-   Open the Studio URL printed by `supabase status` and use its SQL Editor to
-   provision the local application role:
-
-   ```sql
-   ALTER ROLE moneymap_app
-     WITH LOGIN
-     PASSWORD 'replace-with-a-local-app-password'
-     NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-   ```
-
-   The migrations deliberately create this role without login access. Repeat
-   this step after resetting the local database if the login has been removed.
+   Runtime database access uses `@supabase/server` over the Supabase HTTP API
+   (HTTPS for hosted projects). The migrations install `public.moneymap`, an
+   atomic RPC owned by the restricted `moneymap_app` role. Its table access
+   preserves FORCE RLS, household membership, and token permissions. The role
+   needs no login or password. The Next.js backend authenticates database requests
+   with `SUPABASE_SECRET_KEY` and passes the user identity it has verified. Only
+   server credentials can execute the RPC; browser sessions authenticate users
+   separately. The app needs no `DATABASE_URL`.
 
    Fill in `.env.local` using the values from `supabase status`:
 
-   | Variable                               | Local value / where to find it                                                                                                                                     |
-   | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-   | `NEXT_PUBLIC_SUPABASE_URL`             | API / project URL, normally `http://127.0.0.1:54321`                                                                                                               |
-   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key from the local status output, not a hosted project's key                                                                                           |
-   | `APP_HOST`                             | Optional local hostname or LAN address used by the fallback app URL, such as `192.168.1.25`.                                                                       |
-   | `APP_URL`                              | Optional locally; defaults to `http://<APP_HOST>:<PORT>` or `http://localhost:3000` when neither is set. Set the deployed origin explicitly.                       |
-   | `DATABASE_ADMIN_URL`                   | Database URL from status, normally `postgresql://postgres:postgres@127.0.0.1:54322/postgres`                                                                       |
-   | `DATABASE_URL`                         | Same database host, port, and database, but use `moneymap_app` and the password set above: `postgresql://moneymap_app:<encoded-password>@127.0.0.1:54322/postgres` |
-   | `MONEYMAP_MASTER_KEYS`                 | JSON map containing a generated encryption key, as shown below                                                                                                     |
-   | `MONEYMAP_ACTIVE_KEY_VERSION`          | `1`                                                                                                                                                                |
+   | Variable                               | Local value / where to find it                                                                                                               |
+   | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `NEXT_PUBLIC_SUPABASE_URL`             | API / project URL, normally `http://127.0.0.1:54321`                                                                                         |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key from the local status output, not a hosted project's key                                                                     |
+   | `SUPABASE_SECRET_KEY`                  | Secret API key (`sb_secret_...`) for this project; server-only                                                                               |
+   | `APP_HOST`                             | Optional local hostname or LAN address used by the fallback app URL, such as `192.168.1.25`.                                                 |
+   | `APP_URL`                              | Optional locally; defaults to `http://<APP_HOST>:<PORT>` or `http://localhost:3000` when neither is set. Set the deployed origin explicitly. |
+   | `DATABASE_ADMIN_URL`                   | Database URL from status, normally `postgresql://postgres:postgres@127.0.0.1:54322/postgres`                                                 |
+   | `MONEYMAP_MASTER_KEYS`                 | JSON map containing a generated encryption key, as shown below                                                                               |
+   | `MONEYMAP_ACTIVE_KEY_VERSION`          | `1`                                                                                                                                          |
 
-   URL-encode special characters in the database password. Use the actual status
-   output if your ports differ. The application requires the restricted
-   `moneymap_app` role; the admin connection is only for administrative scripts.
+   Use the actual status output if your ports differ. `DATABASE_ADMIN_URL` is
+   only used by administrative scripts, never by the application runtime.
 
    Generate a 32-byte encryption key:
 

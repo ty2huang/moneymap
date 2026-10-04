@@ -1,302 +1,151 @@
-import { eq, and, sql } from "drizzle-orm";
-import * as t from "@/db/schema";
 import type { Ledger, Snapshot } from "@/domain/types";
-import { ensure } from "@/domain/types";
+import { DomainError, ensure } from "@/domain/types";
 import { applyCommand } from "@/domain/ledger";
 import type { Command } from "@/domain/contracts";
-import { asUser, lockOAuthUser, setHousehold, type Tx } from "./database";
+import { databaseRpc } from "./database";
 import { decrypt, encrypt, hash, unwrapKey } from "./crypto";
 import type { Principal } from "./auth";
-export async function authorized<T>(
-  p: Principal,
-  write: boolean,
-  fn: (tx: Tx, s: Snapshot, key: Buffer) => Promise<T>,
-  options: { serializeOAuth?: boolean } = {},
-): Promise<T> {
-  return asUser(p.userId, async (tx) => {
-    // Always acquire the user lock before the household lock.
-    if (options.serializeOAuth) await lockOAuthUser(tx, p.userId);
-    const [member] = await tx
-      .select()
-      .from(t.members)
-      .where(eq(t.members.userId, p.userId));
-    ensure(member, "Create or join a household first.", "NO_HOUSEHOLD", 403);
-    ensure(
-      !p.householdId || p.householdId === member.householdId,
-      "Household access has ended.",
-      "FORBIDDEN",
-      403,
-    );
-    await setHousehold(tx, member.householdId);
-    // Serialize all household reads/writes: simple, consistent snapshots and safe allocations at this scale.
-    const [household] = await tx
-      .select()
-      .from(t.households)
-      .where(eq(t.households.id, member.householdId))
-      .for("update");
-    ensure(household, "Household not found.");
-    const [current] = await tx
-      .select()
-      .from(t.members)
-      .where(eq(t.members.userId, p.userId));
-    ensure(
-      current?.householdId === member.householdId,
-      "Membership has changed.",
-      "FORBIDDEN",
-      403,
-    );
-    if (p.clientId) {
-      const [g] = await tx
-        .select()
-        .from(t.grants)
-        .where(
-          and(
-            eq(t.grants.userId, p.userId),
-            eq(t.grants.clientId, p.clientId),
-            eq(t.grants.householdId, member.householdId),
-          ),
-        );
-      ensure(
-        g && !g.revoked && (!write || g.permission === "write"),
-        "Connection permission denied.",
-        "FORBIDDEN",
-        403,
-      );
-    }
-    if (p.tokenId) {
-      const [token] = await tx
-        .select()
-        .from(t.tokens)
-        .where(eq(t.tokens.id, p.tokenId));
-      ensure(
-        token &&
-          !token.revoked &&
-          token.userId === p.userId &&
-          Date.parse(token.expiresAt) > Date.now() &&
-          (!write || token.permission === "write"),
-        "Token permission denied.",
-        "FORBIDDEN",
-        403,
-      );
-    }
-    const key = unwrapKey(household.wrappedKey, household.id),
-      ledger = await loadLedger(tx, household.id, key);
-    const { wrappedKey: _, ...publicHousehold } = household;
-    return fn(tx, { household: publicHousehold, member: current, ledger }, key);
-  });
-}
-export async function loadLedger(
-  tx: Tx,
-  h: string,
+
+type StoredSnapshot = Snapshot & {
+  household: Snapshot["household"] & { wrappedKey: string };
+};
+
+function decryptLedger(
+  ledger: Ledger,
+  householdId: string,
   key: Buffer,
-): Promise<Ledger> {
-  const accounts = await tx
-    .select()
-    .from(t.accounts)
-    .where(eq(t.accounts.householdId, h));
-  const categories = await tx
-    .select()
-    .from(t.categories)
-    .where(eq(t.categories.householdId, h));
-  const transactions = await tx
-    .select()
-    .from(t.transactions)
-    .where(eq(t.transactions.householdId, h));
-  const transfers = await tx
-    .select()
-    .from(t.transfers)
-    .where(eq(t.transfers.householdId, h));
-  const allocations = await tx
-    .select()
-    .from(t.allocations)
-    .where(eq(t.allocations.householdId, h));
+): Ledger {
   const dec = (id: string, field: string, value: string) =>
-    decrypt(value, key, `${h}:${id}:${field}`);
+    decrypt(value, key, `${householdId}:${id}:${field}`);
   return {
-    accounts: accounts.map((a) => ({
+    accounts: ledger.accounts.map((a) => ({
       ...a,
       name: dec(a.id, "name", a.name),
       bankName: dec(a.id, "bankName", a.bankName),
     })),
-    categories,
-    transactions: transactions.map((x) => ({
-      ...x,
-      description: dec(x.id, "description", x.description),
-      comments: dec(x.id, "comments", x.comments),
-      allocations: allocations
-        .filter((a) => a.receiptId === x.id)
-        .map((a) => ({ expenseId: a.expenseId, amount: a.amount })),
+    categories: ledger.categories,
+    transactions: ledger.transactions.map((t) => ({
+      ...t,
+      description: dec(t.id, "description", t.description),
+      comments: dec(t.id, "comments", t.comments),
     })),
-    transfers: transfers.map((x) => ({
-      ...x,
-      description: dec(x.id, "description", x.description),
-      comments: dec(x.id, "comments", x.comments),
+    transfers: ledger.transfers.map((t) => ({
+      ...t,
+      description: dec(t.id, "description", t.description),
+      comments: dec(t.id, "comments", t.comments),
     })),
   };
 }
-export async function persist(
-  tx: Tx,
-  h: string,
-  before: Ledger,
+
+/** Keep unchanged ciphertext unchanged, including during optimistic retries. */
+function encryptLedger(
+  before: StoredSnapshot,
   after: Ledger,
   key: Buffer,
-) {
+): Ledger {
+  const h = before.household.id;
   const enc = (id: string, field: string, value: string) =>
     encrypt(value, key, `${h}:${id}:${field}`);
-  // Remove allocations first so receipt deletion and reallocation remain atomic.
-  await tx.delete(t.allocations).where(eq(t.allocations.householdId, h));
-  for (const x of before.transactions) {
-    if (!after.transactions.some((a) => a.id === x.id)) {
-      await tx.delete(t.transactions).where(eq(t.transactions.id, x.id));
-    }
-  }
-  for (const x of before.transfers) {
-    if (!after.transfers.some((a) => a.id === x.id)) {
-      await tx.delete(t.transfers).where(eq(t.transfers.id, x.id));
-    }
-  }
-  for (const x of before.categories) {
-    if (!after.categories.some((a) => a.id === x.id)) {
-      await tx.delete(t.categories).where(eq(t.categories.id, x.id));
-    }
-  }
-  for (const x of before.accounts) {
-    if (!after.accounts.some((a) => a.id === x.id)) {
-      await tx.delete(t.accounts).where(eq(t.accounts.id, x.id));
-    }
-  }
-  for (const a of after.accounts) {
-    if (before.accounts.some((x) => x.id === a.id && x.version === a.version)) {
-      continue;
-    }
-    const row = {
-      ...a,
-      householdId: h,
-      name: enc(a.id, "name", a.name),
-      bankName: enc(a.id, "bankName", a.bankName),
-    };
-    await tx
-      .insert(t.accounts)
-      .values(row)
-      .onConflictDoUpdate({ target: t.accounts.id, set: row });
-  }
-  for (const c of after.categories) {
-    if (
-      before.categories.some((x) => x.id === c.id && x.version === c.version)
-    ) {
-      continue;
-    }
-    const row = { ...c, householdId: h };
-    await tx
-      .insert(t.categories)
-      .values(row)
-      .onConflictDoUpdate({ target: t.categories.id, set: row });
-  }
-  for (const x of after.transactions) {
-    if (
-      before.transactions.some((a) => a.id === x.id && a.version === x.version)
-    ) {
-      continue;
-    }
-    const { allocations: _, ...data } = x;
-    const row = {
-      ...data,
-      householdId: h,
-      description: enc(x.id, "description", x.description),
-      comments: enc(x.id, "comments", x.comments),
-    };
-    await tx
-      .insert(t.transactions)
-      .values(row)
-      .onConflictDoUpdate({ target: t.transactions.id, set: row });
-  }
-  for (const x of after.transfers) {
-    if (
-      before.transfers.some((a) => a.id === x.id && a.version === x.version)
-    ) {
-      continue;
-    }
-    const row = {
-      ...x,
-      householdId: h,
-      description: enc(x.id, "description", x.description),
-      comments: enc(x.id, "comments", x.comments),
-    };
-    await tx
-      .insert(t.transfers)
-      .values(row)
-      .onConflictDoUpdate({ target: t.transfers.id, set: row });
-  }
-  for (const x of after.transactions) {
-    for (const a of x.allocations) {
-      await tx
-        .insert(t.allocations)
-        .values({ householdId: h, receiptId: x.id, ...a });
-    }
-  }
+  return {
+    categories: after.categories,
+    accounts: after.accounts.map((a) => {
+      const saved = before.ledger.accounts.find((row) => row.id === a.id);
+      return saved?.version === a.version
+        ? saved
+        : {
+            ...a,
+            name: enc(a.id, "name", a.name),
+            bankName: enc(a.id, "bankName", a.bankName),
+          };
+    }),
+    transactions: after.transactions.map((t) => {
+      const saved = before.ledger.transactions.find((row) => row.id === t.id);
+      return saved?.version === t.version
+        ? saved
+        : {
+            ...t,
+            description: enc(t.id, "description", t.description),
+            comments: enc(t.id, "comments", t.comments),
+          };
+    }),
+    transfers: after.transfers.map((t) => {
+      const saved = before.ledger.transfers.find((row) => row.id === t.id);
+      return saved?.version === t.version
+        ? saved
+        : {
+            ...t,
+            description: enc(t.id, "description", t.description),
+            comments: enc(t.id, "comments", t.comments),
+          };
+    }),
+  };
 }
-export async function snapshot(p: Principal) {
-  return authorized(p, false, async (_tx, s) => s);
+
+export async function snapshot(principal: Principal): Promise<Snapshot> {
+  const stored = await databaseRpc<StoredSnapshot>(principal, "snapshot");
+  const { wrappedKey, ...household } = stored.household;
+  return {
+    household,
+    member: stored.member,
+    ledger: decryptLedger(
+      stored.ledger,
+      household.id,
+      unwrapKey(wrappedKey, household.id),
+    ),
+  };
 }
+
 export async function mutate(
-  p: Principal,
+  principal: Principal,
   command: Command,
   idempotencyKey?: string,
 ) {
-  return authorized(p, true, async (tx, s, key) => {
-    const h = s.household.id;
-    const requestHash = hash(JSON.stringify(command));
-    if (idempotencyKey) {
-      ensure(idempotencyKey.length <= 128, "Idempotency key too long.");
-      const [entry] = await tx
-        .select()
-        .from(t.idempotency)
-        .where(
-          and(
-            eq(t.idempotency.householdId, h),
-            eq(t.idempotency.userId, p.userId),
-            eq(t.idempotency.key, idempotencyKey),
-          ),
-        );
-      if (entry) {
-        ensure(
-          entry.requestHash === requestHash,
-          "Idempotency key was used for a different request.",
-          "CONFLICT",
-          409,
-        );
-        return { revision: s.household.revision, replayed: true };
-      }
-    }
-    const recordId = command.data.id ?? crypto.randomUUID();
+  ensure(
+    !idempotencyKey || idempotencyKey.length <= 128,
+    "Idempotency key too long.",
+  );
+  const recordId = command.data.id ?? crypto.randomUUID();
+  const requestHash = hash(JSON.stringify(command));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const stored = await databaseRpc<
+      StoredSnapshot | { revision: number; replayed: true }
+    >(principal, "snapshot", {
+      write: true,
+      idempotency_key: idempotencyKey,
+      request_hash: requestHash,
+    });
+    if ("replayed" in stored) return stored;
+    const key = unwrapKey(stored.household.wrappedKey, stored.household.id);
+    const before = decryptLedger(stored.ledger, stored.household.id, key);
     const after = applyCommand(
-      s.ledger,
+      before,
       command,
-      s.household.currency,
-      p.userId,
+      stored.household.currency,
+      principal.userId,
       recordId,
     );
-    await persist(tx, h, s.ledger, after, key);
-    await tx
-      .update(t.households)
-      .set({ revision: s.household.revision + 1 })
-      .where(eq(t.households.id, h));
-    await tx.insert(t.audit).values({
-      id: crypto.randomUUID(),
-      householdId: h,
-      userId: p.userId,
-      action: command.type,
-      recordId,
-      at: new Date().toISOString(),
-    });
-    if (idempotencyKey) {
-      await tx.insert(t.idempotency).values({
-        householdId: h,
-        userId: p.userId,
-        key: idempotencyKey,
-        requestHash,
-      });
+    try {
+      return await databaseRpc<{ revision: number; replayed: boolean }>(
+        principal,
+        "save_ledger",
+        {
+          household_id: stored.household.id,
+          expected_revision: stored.household.revision,
+          ledger: encryptLedger(stored, after, key),
+          action: command.type,
+          record_id: recordId,
+          idempotency_key: idempotencyKey,
+          request_hash: requestHash,
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof DomainError) || error.code !== "REVISION_CONFLICT")
+        throw error;
     }
-    return { revision: s.household.revision + 1, replayed: false };
-  });
+  }
+  throw new DomainError(
+    "CONFLICT",
+    "The household changed. Please try again.",
+    409,
+  );
 }

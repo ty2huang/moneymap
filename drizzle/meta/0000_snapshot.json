@@ -1,5 +1,5 @@
 {
-  "id": "7afc80da-a173-47aa-919b-9bcf580dd35a",
+  "id": "4e8436e6-554a-44be-8ba5-59ae748aa894",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -649,6 +649,43 @@
           "value": "\"webapp\".\"households\".\"revision\" >= 0"
         }
       },
+      "isRLSEnabled": false
+    },
+    "webapp.http_oauth_leases": {
+      "name": "http_oauth_leases",
+      "schema": "webapp",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lease_id": {
+          "name": "lease_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "household_id": {
+          "name": "household_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "webapp.idempotency": {

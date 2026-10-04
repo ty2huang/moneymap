@@ -1,5 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
-import * as tables from "../src/db/schema";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   authorizationDetails,
   connectionAction,
@@ -7,34 +6,33 @@ import {
 } from "../src/server/connections";
 
 const mocks = vi.hoisted(() => ({
-  transaction: vi.fn(),
+  rpc: vi.fn(),
   list: vi.fn(),
   revoke: vi.fn(),
   approve: vi.fn(),
+  signal: undefined as AbortSignal | undefined,
 }));
-
-vi.mock("../src/server/database", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/server/database")>()),
-  asUser: mocks.transaction,
-  setHousehold: vi.fn(),
+vi.mock("@supabase/server/core", () => ({
+  createAdminClient: () => ({ rpc: mocks.rpc }),
 }));
-vi.mock("../src/server/crypto", () => ({ unwrapKey: () => Buffer.alloc(32) }));
 vi.mock("../src/server/supabase", () => ({
-  supabaseServer: async () => ({
-    auth: {
-      oauth: {
-        listGrants: mocks.list,
-        revokeGrant: mocks.revoke,
-        approveAuthorization: mocks.approve,
-        getAuthorizationDetails: async () => ({
-          data: { client: { id: "client" } },
-          error: null,
-        }),
+  supabaseServer: async (signal?: AbortSignal) => {
+    mocks.signal = signal;
+    return {
+      auth: {
+        oauth: {
+          listGrants: mocks.list,
+          revokeGrant: mocks.revoke,
+          approveAuthorization: mocks.approve,
+          getAuthorizationDetails: async () => ({
+            data: { client: { id: "client" } },
+            error: null,
+          }),
+        },
       },
-    },
-  }),
+    };
+  },
 }));
-
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -42,83 +40,63 @@ function deferred() {
   });
   return { promise, resolve };
 }
-
 const principal = { userId: "10000000-0000-4000-8000-000000000001" };
 const approval = { authorizationId: "request", decision: "approve" };
+let lease: string | null;
+let leaseExpiresAt: number;
+let failRenewal: boolean;
 let localActive: boolean;
 let providerActive: boolean;
-let lockTail: Promise<void>;
-let onLockAttempt: (() => void) | undefined;
-let afterCommit: (() => Promise<void>) | undefined;
+let busyAttempt: (() => void) | undefined;
 
 beforeEach(() => {
   vi.resetAllMocks();
-  localActive = false;
-  providerActive = false;
-  lockTail = Promise.resolve();
-  onLockAttempt = undefined;
-  afterCommit = undefined;
-  // Simulate transaction-scoped advisory locks and committed grant visibility.
-  // Both production reconciliation and production authorized() use this driver.
-  mocks.transaction.mockImplementation(async (_userId, fn) => {
-    let release: (() => void) | undefined;
-    let pendingActive: boolean | undefined;
-    const tx = {
-      execute: async () => {
-        const previous = lockTail;
-        const gate = deferred();
-        lockTail = gate.promise;
-        onLockAttempt?.();
-        await previous;
-        release = gate.resolve;
-        return [];
-      },
-      select: () => ({
-        from: (table: unknown) => ({
-          where: () => {
-            const rows =
-              table === tables.members
-                ? [{ householdId: "household", userId: principal.userId }]
-                : table === tables.households
-                  ? [{ id: "household", wrappedKey: "key" }]
-                  : table === tables.grants && localActive
-                    ? [{ clientId: "client" }]
-                    : [];
-            return Object.assign(Promise.resolve(rows), {
-              for: async () => rows,
-            });
-          },
-        }),
-      }),
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: async () => {
-            pendingActive = true;
-          },
-        }),
-      }),
-      update: () => ({
-        set: () => ({
-          where: () => ({
-            returning: async () => {
-              pendingActive = false;
-              return [{ clientId: "client" }];
-            },
-          }),
-        }),
-      }),
-    };
-    let result;
-    try {
-      result = await fn(tx);
-      if (pendingActive !== undefined) localActive = pendingActive;
-    } finally {
-      release?.();
+  lease = null;
+  leaseExpiresAt = 0;
+  failRenewal = false;
+  mocks.signal = undefined;
+  localActive = providerActive = false;
+  busyAttempt = undefined;
+  mocks.rpc.mockImplementation(async (_name, { operation, payload }) => {
+    if (operation === "oauth_begin") {
+      if (lease && leaseExpiresAt > Date.now()) {
+        busyAttempt?.();
+        return {
+          data: null,
+          error: { code: "P0001", details: "OAUTH_BUSY", message: "Busy" },
+        };
+      }
+      lease = crypto.randomUUID();
+      leaseExpiresAt = Date.now() + 120_000;
+      return {
+        data: {
+          leaseId: lease,
+          householdId: "household",
+          activeClientIds: localActive ? ["client"] : [],
+        },
+        error: null,
+      };
     }
-    const callback = afterCommit;
-    afterCommit = undefined;
-    await callback?.();
-    return result;
+    expect(payload.lease_id).toBe(lease);
+    if (operation === "oauth_renew") {
+      if (failRenewal || leaseExpiresAt <= Date.now())
+        return {
+          data: null,
+          error: {
+            code: "P0001",
+            details: "FORBIDDEN",
+            message: "Lease expired",
+          },
+        };
+      leaseExpiresAt = Date.now() + 120_000;
+    }
+    if (operation === "oauth_end") lease = null;
+    if (operation === "oauth_grant") localActive = true;
+    if (operation === "connection_action") {
+      localActive = false;
+      return { data: { ok: true, clientId: "client" }, error: null };
+    }
+    return { data: { ok: true }, error: null };
   });
   mocks.list.mockImplementation(async () => ({
     data: providerActive ? [{ client: { id: "client" } }] : [],
@@ -137,9 +115,9 @@ beforeEach(() => {
   });
 });
 
-it("blocks approval until reconciliation finishes with its local snapshot", async () => {
-  const listing = deferred();
-  const resume = deferred();
+it("waits for reconciliation before approving another authorization", async () => {
+  const listing = deferred(),
+    resume = deferred();
   mocks.list.mockImplementation(async () => {
     listing.resolve();
     await resume.promise;
@@ -151,7 +129,7 @@ it("blocks approval until reconciliation finishes with its local snapshot", asyn
   const reconciliation = authorizationDetails(principal, "other-request");
   await listing.promise;
   const attempted = deferred();
-  onLockAttempt = attempted.resolve;
+  busyAttempt = attempted.resolve;
   const approving = consent(principal, approval);
   await attempted.promise;
   expect(mocks.approve).not.toHaveBeenCalled();
@@ -159,12 +137,11 @@ it("blocks approval until reconciliation finishes with its local snapshot", asyn
   await Promise.all([reconciliation, approving]);
   expect(localActive).toBe(true);
   expect(providerActive).toBe(true);
-  expect(mocks.revoke).not.toHaveBeenCalled();
 });
 
-it("waits for approval to commit before reading active local grants", async () => {
-  const approved = deferred();
-  const resume = deferred();
+it("reads active local grants after an in-flight approval commits", async () => {
+  const approved = deferred(),
+    resume = deferred();
   mocks.approve.mockImplementation(async () => {
     providerActive = true;
     approved.resolve();
@@ -177,7 +154,7 @@ it("waits for approval to commit before reading active local grants", async () =
   const approving = consent(principal, approval);
   await approved.promise;
   const attempted = deferred();
-  onLockAttempt = attempted.resolve;
+  busyAttempt = attempted.resolve;
   const reconciliation = authorizationDetails(principal, "other-request");
   await attempted.promise;
   expect(mocks.list).not.toHaveBeenCalled();
@@ -188,26 +165,100 @@ it("waits for approval to commit before reading active local grants", async () =
   expect(mocks.revoke).not.toHaveBeenCalled();
 });
 
-it("preserves reapproval committed between local and provider revocation", async () => {
+it("prevents a provider revocation from undoing concurrent reapproval", async () => {
   localActive = providerActive = true;
-  afterCommit = async () => {
-    await consent(principal, approval);
-  };
-  await connectionAction(principal, {
+  const revoking = deferred(),
+    resume = deferred();
+  mocks.revoke.mockImplementation(async () => {
+    expect(localActive).toBe(false);
+    revoking.resolve();
+    await resume.promise;
+    providerActive = false;
+    return { data: {}, error: null };
+  });
+  const revocation = connectionAction(principal, {
     action: "revoke-grant",
     id: "10000000-0000-4000-8000-000000000002",
   });
+  await revoking.promise;
+  const attempted = deferred();
+  busyAttempt = attempted.resolve;
+  const approving = consent(principal, approval);
+  await attempted.promise;
+  expect(mocks.approve).not.toHaveBeenCalled();
+  resume.resolve();
+  await Promise.all([revocation, approving]);
   expect(localActive).toBe(true);
   expect(providerActive).toBe(true);
-  expect(mocks.revoke).not.toHaveBeenCalled();
 });
 
-it("releases reconciliation's lock after a provider failure", async () => {
+it("releases the database lease after a provider failure", async () => {
   mocks.list.mockRejectedValueOnce(new Error("Provider unavailable"));
   await expect(authorizationDetails(principal, "request")).rejects.toThrow(
     "Provider unavailable",
   );
+  expect(lease).toBeNull();
   await consent(principal, approval);
   expect(localActive).toBe(true);
   expect(providerActive).toBe(true);
+});
+
+afterEach(() => vi.useRealTimers());
+
+it("renews a lease past its original expiry while revocation is pending", async () => {
+  vi.useFakeTimers();
+  localActive = providerActive = true;
+  const revoking = deferred(),
+    resume = deferred();
+  mocks.revoke.mockImplementation(async () => {
+    revoking.resolve();
+    await resume.promise;
+    providerActive = false;
+    return { data: {}, error: null };
+  });
+  const revocation = connectionAction(principal, {
+    action: "revoke-grant",
+    id: "10000000-0000-4000-8000-000000000002",
+  });
+  await revoking.promise;
+  const initialLease = lease;
+  await vi.advanceTimersByTimeAsync(130_000);
+  expect(lease).toBe(initialLease);
+  expect(leaseExpiresAt).toBeGreaterThan(Date.now());
+  const attempted = deferred();
+  busyAttempt = attempted.resolve;
+  const approving = consent(principal, approval);
+  await attempted.promise;
+  expect(mocks.approve).not.toHaveBeenCalled();
+  resume.resolve();
+  await revocation;
+  await vi.advanceTimersByTimeAsync(100);
+  await approving;
+  expect(localActive).toBe(true);
+  expect(providerActive).toBe(true);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("cancels provider work and releases the lease if renewal fails", async () => {
+  vi.useFakeTimers();
+  failRenewal = true;
+  const listing = deferred();
+  mocks.list.mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        const signal = mocks.signal!;
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+        listing.resolve();
+      }),
+  );
+  const result = authorizationDetails(principal, "request");
+  const rejected = expect(result).rejects.toThrow("Lease expired");
+  await listing.promise;
+  await vi.advanceTimersByTimeAsync(20_000);
+  await rejected;
+  expect(mocks.signal?.aborted).toBe(true);
+  expect(lease).toBeNull();
+  expect(vi.getTimerCount()).toBe(0);
 });

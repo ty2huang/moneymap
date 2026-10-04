@@ -1,55 +1,32 @@
 import { randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import * as t from "@/db/schema";
-import { authorized } from "./ledger-service";
+import type { grants, tokens } from "@/db/schema";
+import { ensure } from "@/domain/types";
 import { hash } from "./crypto";
 import { firstParty, type Principal } from "./auth";
 import { supabaseServer } from "./supabase";
-import { ensure } from "@/domain/types";
-import { asUser, lockOAuthUser, setHousehold, type Tx } from "./database";
+import { databaseRpc, withOAuthLease } from "./database";
 
-async function activeOAuthClients(tx: Tx, userId: string) {
-  const [member] = await tx
-    .select()
-    .from(t.members)
-    .where(eq(t.members.userId, userId));
-  if (!member) return new Set<string>();
-
-  await setHousehold(tx, member.householdId);
-  const grants = await tx
-    .select({ clientId: t.grants.clientId })
-    .from(t.grants)
-    .where(
-      and(
-        eq(t.grants.householdId, member.householdId),
-        eq(t.grants.userId, userId),
-        eq(t.grants.revoked, false),
-      ),
-    );
-  return new Set(grants.map((grant) => grant.clientId));
-}
+type Connections = {
+  tokens: Omit<typeof tokens.$inferSelect, "hash">[];
+  grants: (typeof grants.$inferSelect)[];
+};
 
 export async function authorizationDetails(
-  p: Principal,
+  principal: Principal,
   authorizationId: string,
 ) {
-  firstParty(p);
-  return asUser(p.userId, async (tx) => {
-    await lockOAuthUser(tx, p.userId);
-    const activeClientIds = await activeOAuthClients(tx, p.userId);
-    const client = await supabaseServer();
+  firstParty(principal);
+  return withOAuthLease(principal, async (lease) => {
+    const activeClients = new Set(lease.activeClientIds);
+    const client = await supabaseServer(lease.signal);
     const { data: grants, error } = await client.auth.oauth.listGrants();
     ensure(
       !error && grants,
       "Application access could not be checked. Please try again.",
     );
-
-    // This project's token hook assigns every OAuth client the MoneyMap audience.
-    // Remove stale provider consent before fetching details: otherwise Supabase
-    // can skip the local permission form after revocation or a household change.
     for (const grant of grants) {
-      if (activeClientIds.has(grant.client.id)) continue;
+      if (activeClients.has(grant.client.id)) continue;
       const result = await client.auth.oauth.revokeGrant({
         clientId: grant.client.id,
       });
@@ -62,30 +39,9 @@ export async function authorizationDetails(
   });
 }
 
-export async function connections(p: Principal) {
-  firstParty(p);
-  const result = await authorized(p, false, async (tx, s) => ({
-    tokens: (
-      await tx
-        .select()
-        .from(t.tokens)
-        .where(
-          and(
-            eq(t.tokens.householdId, s.household.id),
-            eq(t.tokens.userId, p.userId),
-          ),
-        )
-    ).map(({ hash: _, ...x }) => x),
-    grants: await tx
-      .select()
-      .from(t.grants)
-      .where(
-        and(
-          eq(t.grants.householdId, s.household.id),
-          eq(t.grants.userId, p.userId),
-        ),
-      ),
-  }));
+export async function connections(principal: Principal) {
+  firstParty(principal);
+  const result = await databaseRpc<Connections>(principal, "connections");
   const client = await supabaseServer();
   const { data: oauthGrants } = await client.auth.oauth.listGrants();
   const applications = new Map(
@@ -99,9 +55,10 @@ export async function connections(p: Principal) {
     })),
   };
 }
-export async function connectionAction(p: Principal, input: unknown) {
-  firstParty(p);
-  const x = z
+
+export async function connectionAction(principal: Principal, input: unknown) {
+  firstParty(principal);
+  const action = z
     .object({
       action: z.enum(["create-token", "revoke-token", "revoke-grant"]),
       id: z.string().uuid().optional(),
@@ -110,116 +67,92 @@ export async function connectionAction(p: Principal, input: unknown) {
       days: z.number().int().min(1).max(365).default(30),
     })
     .parse(input);
-  let revokedClientId: string | undefined;
-  const result = await authorized(
-    p,
-    true,
-    async (tx, s) => {
-      if (x.action === "create-token") {
-        ensure(x.name, "Name the token.");
-        const token = "mm_" + randomBytes(32).toString("base64url");
-        await tx.insert(t.tokens).values({
-          id: crypto.randomUUID(),
-          userId: p.userId,
-          householdId: s.household.id,
-          name: x.name,
-          hash: hash(token),
-          permission: x.permission,
-          expiresAt: new Date(Date.now() + x.days * 86400000).toISOString(),
-        });
-        return { token };
-      }
-      ensure(x.id, "Select a connection.");
-      if (x.action === "revoke-token") {
-        await tx
-          .update(t.tokens)
-          .set({ revoked: true })
-          .where(and(eq(t.tokens.id, x.id), eq(t.tokens.userId, p.userId)));
-      } else {
-        const [grant] = await tx
-          .update(t.grants)
-          .set({ revoked: true })
-          .where(and(eq(t.grants.id, x.id), eq(t.grants.userId, p.userId)))
-          .returning({ clientId: t.grants.clientId });
-        revokedClientId = grant?.clientId;
-      }
-      return { ok: true };
-    },
-    { serializeOAuth: x.action === "revoke-grant" },
-  );
-  // Commit the local revocation even when the provider is unavailable.
-  if (revokedClientId) {
-    const clientId = revokedClientId;
-    await asUser(p.userId, async (tx) => {
-      await lockOAuthUser(tx, p.userId);
-      // A new approval may have committed after the local revocation.
-      const activeClients = await activeOAuthClients(tx, p.userId);
-      if (activeClients.has(clientId)) return;
-      const client = await supabaseServer();
-      const { error } = await client.auth.oauth.revokeGrant({ clientId });
+  if (action.action === "create-token") {
+    ensure(action.name, "Name the token.");
+    const token = "mm_" + randomBytes(32).toString("base64url");
+    await databaseRpc(principal, "connection_action", {
+      ...action,
+      id: crypto.randomUUID(),
+      hash: hash(token),
+      expires_at: new Date(Date.now() + action.days * 86400000).toISOString(),
+    });
+    return { token };
+  }
+  ensure(action.id, "Select a connection.");
+  if (action.action === "revoke-token")
+    return databaseRpc<{ ok: true }>(principal, "connection_action", action);
+  return withOAuthLease(principal, async (lease) => {
+    // Local revocation commits before contacting the provider. The lease prevents
+    // a concurrent approval from being undone by this provider revocation.
+    const result = await databaseRpc<{ ok: true; clientId: string | null }>(
+      principal,
+      "connection_action",
+      { ...action, lease_id: lease.leaseId },
+    );
+    if (result.clientId) {
+      const client = await supabaseServer(lease.signal);
+      const { error } = await client.auth.oauth.revokeGrant({
+        clientId: result.clientId,
+      });
       ensure(
         !error,
         "Access was revoked, but application consent could not be reset. Please try again.",
       );
-    });
-  }
-  return result;
+    }
+    return { ok: true };
+  });
 }
-export async function consent(p: Principal, input: unknown) {
-  firstParty(p);
-  const x = z
+
+export async function consent(principal: Principal, input: unknown) {
+  firstParty(principal);
+  const action = z
     .object({
       authorizationId: z.string().min(1),
       decision: z.enum(["approve", "deny"]),
       permission: z.enum(["read", "write"]).default("read"),
     })
     .parse(input);
-  const client = await supabaseServer();
-  if (x.decision === "approve") {
-    return authorized(
-      p,
-      true,
-      async (tx, s) => {
-        const { data: details, error } =
-          await client.auth.oauth.getAuthorizationDetails(x.authorizationId);
-        ensure(
-          !error && details && "client" in details,
-          "Invalid authorization request.",
-        );
-        // Keep membership stable while approving. Provider or commit failures
-        // must not create, reactivate, or upgrade local access.
-        const result = await client.auth.oauth.approveAuthorization(
-          x.authorizationId,
-          { skipBrowserRedirect: true },
-        );
-        ensure(
-          !result.error && result.data,
-          "Authorization could not be completed.",
-        );
-        const clientId = details.client.id;
-        const values = {
-          id: crypto.randomUUID(),
-          householdId: s.household.id,
-          userId: p.userId,
-          clientId,
-          permission: x.permission,
-          revoked: false,
-        };
-        await tx
-          .insert(t.grants)
-          .values(values)
-          .onConflictDoUpdate({
-            target: [t.grants.householdId, t.grants.userId, t.grants.clientId],
-            set: { permission: x.permission, revoked: false },
-          });
-        return result.data;
-      },
-      { serializeOAuth: true },
+  if (action.decision === "deny") {
+    const client = await supabaseServer();
+    const result = await client.auth.oauth.denyAuthorization(
+      action.authorizationId,
+      { skipBrowserRedirect: true },
     );
+    ensure(
+      !result.error && result.data,
+      "Authorization could not be completed.",
+    );
+    return result.data;
   }
-  const result = await client.auth.oauth.denyAuthorization(x.authorizationId, {
-    skipBrowserRedirect: true,
+  return withOAuthLease(principal, async (lease) => {
+    const client = await supabaseServer(lease.signal);
+    ensure(
+      lease.householdId,
+      "Create or join a household first.",
+      "NO_HOUSEHOLD",
+      403,
+    );
+    const { data: details, error } =
+      await client.auth.oauth.getAuthorizationDetails(action.authorizationId);
+    ensure(
+      !error && details && "client" in details,
+      "Invalid authorization request.",
+    );
+    const result = await client.auth.oauth.approveAuthorization(
+      action.authorizationId,
+      { skipBrowserRedirect: true },
+    );
+    ensure(
+      !result.error && result.data,
+      "Authorization could not be completed.",
+    );
+    lease.signal.throwIfAborted();
+    await databaseRpc(principal, "oauth_grant", {
+      lease_id: lease.leaseId,
+      household_id: lease.householdId,
+      client_id: details.client.id,
+      permission: action.permission,
+    });
+    return result.data;
   });
-  ensure(!result.error && result.data, "Authorization could not be completed.");
-  return result.data;
 }

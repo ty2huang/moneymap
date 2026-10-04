@@ -316,3 +316,12 @@ export const audit = webappSchema.table(
   },
   (t) => [index("audit_household_at_idx").on(t.householdId, t.at)],
 );
+export const httpOAuthLeases = webappSchema.table("http_oauth_leases", {
+  userId: uuid("user_id").primaryKey(),
+  leaseId: uuid("lease_id").notNull(),
+  householdId: uuid("household_id"),
+  expiresAt: timestamp("expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+});
