@@ -68,7 +68,7 @@ Run these commands from the repository root.
    ALTER ROLE moneymap_app
      WITH LOGIN
      PASSWORD 'replace-with-a-local-app-password'
-     NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+     NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
    ```
 
    The migrations deliberately create this role without login access. Repeat
