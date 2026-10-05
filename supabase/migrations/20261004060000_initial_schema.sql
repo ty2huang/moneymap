@@ -728,12 +728,24 @@ RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
 DECLARE
   item jsonb;
   allocation jsonb;
+  changed_transaction_ids uuid[];
 BEGIN
   PERFORM webapp.http_assert(jsonb_typeof(ledger->'accounts') = 'array'
     AND jsonb_typeof(ledger->'categories') = 'array'
     AND jsonb_typeof(ledger->'transactions') = 'array'
     AND jsonb_typeof(ledger->'transfers') = 'array', 'Invalid ledger.');
-  DELETE FROM webapp.allocations WHERE "householdId" = h;
+  -- Capture changed versions before the transaction upserts replace them.
+  SELECT coalesce(array_agg((incoming.value->>'id')::uuid), '{}'::uuid[])
+  INTO changed_transaction_ids
+  FROM jsonb_array_elements(ledger->'transactions') AS incoming(value)
+  LEFT JOIN webapp.transactions stored
+    ON stored."householdId" = h AND stored.id = (incoming.value->>'id')::uuid
+  WHERE stored.id IS NULL OR stored.version IS DISTINCT FROM (incoming.value->>'version')::integer;
+  DELETE FROM webapp.allocations a WHERE a."householdId" = h
+    AND (a."receiptId" = ANY(changed_transaction_ids) OR NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(ledger->'transactions') x
+      WHERE (x->>'id')::uuid = a."receiptId"
+    ));
   DELETE FROM webapp.transactions WHERE "householdId" = h AND id NOT IN
     (SELECT (x->>'id')::uuid FROM jsonb_array_elements(ledger->'transactions') x);
   DELETE FROM webapp.transfers WHERE "householdId" = h AND id NOT IN
@@ -772,10 +784,12 @@ BEGIN
   END LOOP;
   FOR item IN SELECT value FROM jsonb_array_elements(ledger->'transactions') LOOP
     PERFORM webapp.http_assert(jsonb_typeof(item->'allocations') = 'array', 'Invalid receipt allocations.');
-    FOR allocation IN SELECT value FROM jsonb_array_elements(item->'allocations') LOOP
-      INSERT INTO webapp.allocations ("householdId", "receiptId", "expenseId", amount)
-      VALUES (h, (item->>'id')::uuid, (allocation->>'expenseId')::uuid, (allocation->>'amount')::bigint);
-    END LOOP;
+    IF (item->>'id')::uuid = ANY(changed_transaction_ids) THEN
+      FOR allocation IN SELECT value FROM jsonb_array_elements(item->'allocations') LOOP
+        INSERT INTO webapp.allocations ("householdId", "receiptId", "expenseId", amount)
+        VALUES (h, (item->>'id')::uuid, (allocation->>'expenseId')::uuid, (allocation->>'amount')::bigint);
+      END LOOP;
+    END IF;
   END LOOP;
   -- Deferred receipt checks must run before returning to the API caller role.
   SET CONSTRAINTS ALL IMMEDIATE;

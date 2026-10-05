@@ -45,15 +45,18 @@ const approval = { authorizationId: "request", decision: "approve" };
 let lease: string | null;
 let leaseExpiresAt: number;
 let failRenewal: boolean;
+let failRelease: boolean;
 let localActive: boolean;
 let providerActive: boolean;
 let busyAttempt: (() => void) | undefined;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_test_server_credential");
   lease = null;
   leaseExpiresAt = 0;
   failRenewal = false;
+  failRelease = false;
   mocks.signal = undefined;
   localActive = providerActive = false;
   busyAttempt = undefined;
@@ -90,7 +93,10 @@ beforeEach(() => {
         };
       leaseExpiresAt = Date.now() + 120_000;
     }
-    if (operation === "oauth_end") lease = null;
+    if (operation === "oauth_end") {
+      if (failRelease) throw new Error("Release unavailable");
+      lease = null;
+    }
     if (operation === "oauth_grant") localActive = true;
     if (operation === "connection_action") {
       localActive = false;
@@ -203,7 +209,35 @@ it("releases the database lease after a provider failure", async () => {
   expect(providerActive).toBe(true);
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+it("returns the approved redirect even when lease release fails", async () => {
+  failRelease = true;
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await expect(consent(principal, approval)).resolves.toEqual({
+    redirect_url: "https://example.com/callback",
+  });
+  expect(localActive).toBe(true);
+  expect(providerActive).toBe(true);
+  expect(log).toHaveBeenCalledWith(
+    "OAuth lease release failed",
+    expect.objectContaining({ message: "Release unavailable" }),
+  );
+});
+
+it("preserves the provider error when lease release also fails", async () => {
+  failRelease = true;
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const providerError = new Error("Provider unavailable");
+  mocks.list.mockRejectedValueOnce(providerError);
+  await expect(authorizationDetails(principal, "request")).rejects.toBe(
+    providerError,
+  );
+});
 
 it("renews a lease past its original expiry while revocation is pending", async () => {
   vi.useFakeTimers();

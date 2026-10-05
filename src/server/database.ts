@@ -25,11 +25,13 @@ export async function databaseRpc<T>(
   operation: DatabaseOperation,
   payload: Record<string, unknown> = {},
 ): Promise<T> {
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!secretKey) throw new Error("SUPABASE_SECRET_KEY is not configured.");
   const client = createAdminClient({
     env: {
       url: process.env.NEXT_PUBLIC_SUPABASE_URL,
       secretKeys: {
-        default: process.env.SUPABASE_SECRET_KEY!,
+        default: secretKey,
       },
     },
     supabaseOptions: { global: { fetch: boundedFetch() } },
@@ -133,6 +135,9 @@ export async function withOAuthLease<T>(
     stopped = true;
     clearTimeout(timer);
     await pendingRenewal;
-    await databaseRpc(principal, "oauth_end", { lease_id: lease.leaseId });
+    // Expiry releases the lease if cleanup fails; preserve the work's outcome.
+    await databaseRpc(principal, "oauth_end", {
+      lease_id: lease.leaseId,
+    }).catch((error) => console.error("OAuth lease release failed", error));
   }
 }

@@ -62,6 +62,7 @@ describe.skipIf(!url)(
       if (!url || new URL(url).pathname !== "/moneymap_test") {
         throw new Error("Tests require dedicated database named moneymap_test");
       }
+      vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_test_server_credential");
       admin = postgres(url, { max: 2, onnotice: () => {} });
       await admin`drop schema if exists webapp cascade`;
       await admin`drop function if exists public.moneymap(text,jsonb)`;
@@ -135,6 +136,7 @@ describe.skipIf(!url)(
     });
     afterAll(async () => {
       await admin?.end();
+      vi.unstubAllEnvs();
     });
     it("isolates households and encrypts persisted labels", async () => {
       const s = await snapshot(owner);
@@ -269,6 +271,92 @@ describe.skipIf(!url)(
       expect(
         s.ledger.transactions.filter((t) => t.allocations.length),
       ).toHaveLength(1);
+    });
+    it("preserves unchanged allocation rows across unrelated edits and receipt changes", async () => {
+      const actor = principal();
+      const { id: householdId } = await createHousehold(actor, {
+        currency: "USD",
+      });
+      await mutate(actor, {
+        type: "account.save",
+        data: {
+          name: "Checking",
+          bankName: "Bank",
+          type: "checking",
+          archived: false,
+        },
+      });
+      let s = await snapshot(actor);
+      await mutate(actor, expense(s.ledger, "100", "60"));
+      s = await snapshot(actor);
+      const expenseId = s.ledger.transactions[0].id;
+      await mutate(actor, receipt(s.ledger, expenseId, "10"));
+      await mutate(actor, receipt(s.ledger, expenseId, "15"));
+      const allocations = () => admin`
+        select "receiptId", "expenseId", amount::int, ctid::text, xmin::text
+        from webapp.allocations where "householdId"=${householdId}
+        order by "receiptId"
+      `;
+      const initial = await allocations();
+      expect(initial).toHaveLength(2);
+
+      s = await snapshot(actor);
+      const account = s.ledger.accounts[0];
+      await mutate(actor, {
+        type: "account.save",
+        data: { ...account, name: "Renamed" },
+      });
+      const storedExpense = s.ledger.transactions.find(
+        (t) => t.id === expenseId,
+      )!;
+      const expenseEdit = expense(s.ledger, "120", "60");
+      await mutate(actor, {
+        ...expenseEdit,
+        data: {
+          ...expenseEdit.data,
+          id: expenseId,
+          version: storedExpense.version,
+        },
+      });
+      expect(await allocations()).toEqual(initial);
+
+      await mutate(actor, receipt(s.ledger, expenseId, "5"));
+      const withNewReceipt = await allocations();
+      expect(withNewReceipt).toHaveLength(3);
+      expect(withNewReceipt).toEqual(expect.arrayContaining(initial));
+
+      s = await snapshot(actor);
+      const editedId = initial[0].receiptId;
+      const storedReceipt = s.ledger.transactions.find(
+        (t) => t.id === editedId,
+      )!;
+      const receiptEdit = receipt(s.ledger, expenseId, "20");
+      await mutate(actor, {
+        ...receiptEdit,
+        data: {
+          ...receiptEdit.data,
+          id: editedId,
+          version: storedReceipt.version,
+        },
+      });
+      const unchanged = withNewReceipt.filter((a) => a.receiptId !== editedId);
+      const edited = await allocations();
+      expect(edited).toHaveLength(3);
+      expect(edited).toEqual(expect.arrayContaining(unchanged));
+      const changed = edited.find((a) => a.receiptId === editedId)!;
+      expect(changed.amount).toBe(2000);
+      expect(changed.xmin).not.toBe(initial[0].xmin);
+
+      s = await snapshot(actor);
+      await mutate(actor, {
+        type: "transaction.delete",
+        data: {
+          id: editedId,
+          version: s.ledger.transactions.find((t) => t.id === editedId)!
+            .version,
+        },
+      });
+      expect(await allocations()).toEqual(unchanged);
     });
     it("idempotent retries do not duplicate transactions and reject changed payloads", async () => {
       const s = await snapshot(owner),

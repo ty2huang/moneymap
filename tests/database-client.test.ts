@@ -20,6 +20,17 @@ afterEach(() => {
   fetchMock.mockReset();
 });
 
+it.each([undefined, ""])(
+  "reports a missing server key before making a database request (%j)",
+  async (secretKey) => {
+    vi.stubEnv("SUPABASE_SECRET_KEY", secretKey);
+    await expect(
+      databaseRpc({ userId: "verified-user" }, "session"),
+    ).rejects.toThrow("SUPABASE_SECRET_KEY is not configured.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+
 it("authenticates HTTPS database requests with the server secret", async () => {
   await databaseRpc({ userId: "verified-user" }, "session");
   const [url, options] = fetchMock.mock.calls[0];
