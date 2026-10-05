@@ -2,7 +2,6 @@ import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
-import { sql, eq } from "drizzle-orm";
 import {
   createHousehold,
   requestJoin,
@@ -10,13 +9,12 @@ import {
   householdInfo,
 } from "../src/server/household-service";
 import { mutate, snapshot } from "../src/server/ledger-service";
-import { connectionAction } from "../src/server/connections";
-import { asUser, setHousehold } from "../src/server/database";
+import { connectionAction, consent } from "../src/server/connections";
+import { databaseRpc } from "../src/server/database";
 import { hash, unwrapKey, decrypt } from "../src/server/crypto";
 import { execFileSync } from "node:child_process";
 import { POST as mcpPost } from "../src/app/mcp/route";
 import { GET as restGet } from "../src/app/api/v1/[...path]/route";
-import * as tables from "../src/db/schema";
 import { expense, receipt } from "./fixtures";
 
 // These tests exercise database authorization without a Next request or a live
@@ -27,25 +25,85 @@ vi.mock("../src/server/supabase", async (importOriginal) => ({
     auth: {
       oauth: {
         revokeGrant: async () => ({ data: {}, error: null }),
+        getAuthorizationDetails: async () => ({
+          data: { client: { id: "integration-consent-client" } },
+          error: null,
+        }),
+        approveAuthorization: async () => ({
+          data: { redirect_url: "https://client.example/callback" },
+          error: null,
+        }),
       },
     },
   }),
 }));
+
+const rpcMock = vi.hoisted(() => ({ execute: vi.fn() }));
+vi.mock("@supabase/server/core", () => ({
+  createAdminClient: () => ({
+    rpc: (name: string, args: unknown) => rpcMock.execute(name, args),
+  }),
+}));
+
+function principal() {
+  const userId = crypto.randomUUID();
+  return { userId };
+}
 
 const url = process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)(
   "PostgreSQL integration — isolated moneymap_test only",
   () => {
     let admin: ReturnType<typeof postgres>;
-    const owner = { userId: crypto.randomUUID() },
-      other = { userId: crypto.randomUUID() },
-      joiner = { userId: crypto.randomUUID() };
+    const owner = principal(),
+      other = principal(),
+      joiner = principal();
     beforeAll(async () => {
       if (!url || new URL(url).pathname !== "/moneymap_test") {
         throw new Error("Tests require dedicated database named moneymap_test");
       }
-      admin = postgres(url, { max: 2 });
+      vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_test_server_credential");
+      admin = postgres(url, { max: 2, onnotice: () => {} });
       await admin`drop schema if exists webapp cascade`;
+      await admin`drop function if exists public.moneymap(text,jsonb)`;
+      // Standalone PostgreSQL supplies the same claims interface as PostgREST.
+      await admin.unsafe(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
+        END $$;
+        CREATE SCHEMA IF NOT EXISTS auth;
+        CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+          SELECT coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb
+        $$;
+        CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+          SELECT nullif(auth.jwt()->>'sub','')::uuid
+        $$;
+      `);
+      rpcMock.execute.mockImplementation(async (_name, args) => {
+        try {
+          const data = await admin.begin(async (tx) => {
+            await tx`select set_config('request.jwt.claims', '{"role":"service_role"}', true)`;
+            await tx.unsafe("SET LOCAL ROLE service_role");
+            const [row] =
+              await tx`select public.moneymap(${args.operation}, ${tx.json(args.payload)}::jsonb) as data`;
+            return row.data;
+          });
+          return { data, error: null };
+        } catch (error) {
+          const e = error as {
+            code: string;
+            detail: string;
+            message: string;
+            where?: string;
+          };
+          return {
+            data: null,
+            error: { code: e.code, details: e.detail, message: e.message },
+          };
+        }
+      });
       for (const name of (await readdir("supabase/migrations"))
         .filter((f) => f.endsWith(".sql"))
         .sort()) {
@@ -53,11 +111,8 @@ describe.skipIf(!url)(
           await readFile("supabase/migrations/" + name, "utf8"),
         );
       }
-      await admin`alter role moneymap_app login password 'local-test-role'`;
-      const appURL = new URL(url);
-      appURL.username = "moneymap_app";
-      appURL.password = "local-test-role";
-      process.env.DATABASE_URL = appURL.toString();
+      // Hosted Supabase keeps auth schema usage private to platform roles.
+      await admin.unsafe("REVOKE ALL ON SCHEMA auth FROM moneymap_app");
       process.env.MONEYMAP_MASTER_KEYS = JSON.stringify({
         "1": randomBytes(32).toString("base64"),
       });
@@ -81,6 +136,7 @@ describe.skipIf(!url)(
     });
     afterAll(async () => {
       await admin?.end();
+      vi.unstubAllEnvs();
     });
     it("isolates households and encrypts persisted labels", async () => {
       const s = await snapshot(owner);
@@ -88,14 +144,118 @@ describe.skipIf(!url)(
       const rows = await admin`select name from webapp.accounts`;
       expect(rows[0].name).not.toContain("Secret");
       expect(s.ledger.accounts[0].name).toBe("Secret checking");
-      await asUser(other.userId, async (tx) => {
-        const m = await tx
-          .select()
-          .from(tables.members)
-          .where(eq(tables.members.userId, other.userId));
-        await setHousehold(tx, m[0].householdId);
-        expect(await tx.select().from(tables.accounts)).toHaveLength(0);
+      await admin.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE moneymap_app");
+        await tx`select set_config('app.user_id', ${other.userId}, true)`;
+        await tx`select set_config('app.household_id', ${(await snapshot(other)).household.id}, true)`;
+        expect(await tx`select * from webapp.accounts`).toHaveLength(0);
       });
+    });
+    it("requires server credentials, a verified actor, and keeps tables private", async () => {
+      const [role] = await admin`
+        select p.prosecdef, pg_get_userbyid(p.proowner) as owner, r.rolbypassrls
+        from pg_proc p join pg_roles r on r.oid=p.proowner
+        where p.oid='public.moneymap(text,jsonb)'::regprocedure
+      `;
+      expect(role).toEqual({
+        prosecdef: true,
+        owner: "moneymap_app",
+        rolbypassrls: false,
+      });
+      await expect(
+        databaseRpc(undefined, "snapshot", { user_id: owner.userId }),
+      ).rejects.toThrow(/Sign in/);
+      for (const apiRole of ["anon", "authenticated"]) {
+        await expect(
+          admin.begin(async (tx) => {
+            await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: owner.userId, role: apiRole })}, true)`;
+            await tx.unsafe(`SET LOCAL ROLE ${apiRole}`);
+            return tx`select public.moneymap('snapshot', ${tx.json({ user_id: owner.userId })}::jsonb)`;
+          }),
+        ).rejects.toMatchObject({ code: "42501" });
+      }
+      const own = await snapshot(owner);
+      const result = await databaseRpc<{ household: { id: string } }>(
+        other,
+        "snapshot",
+        {
+          user_id: owner.userId,
+          household_id: own.household.id,
+        },
+      );
+      expect(result.household.id).not.toBe(own.household.id);
+      await expect(
+        admin.begin(async (tx) => {
+          await tx.unsafe("SET LOCAL ROLE authenticated");
+          return tx`select * from webapp.accounts`;
+        }),
+      ).rejects.toMatchObject({ code: "42501" });
+    });
+    it("rolls back stale and invalid saves without changing revision or audit", async () => {
+      const stored = await databaseRpc<{
+        household: { id: string; revision: number };
+        ledger: Record<string, unknown>;
+      }>(owner, "snapshot");
+      const payload = {
+        household_id: stored.household.id,
+        expected_revision: stored.household.revision - 1,
+        ledger: stored.ledger,
+        action: "account.save",
+        record_id: crypto.randomUUID(),
+      };
+      await expect(
+        databaseRpc(owner, "save_ledger", payload),
+      ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+      await expect(
+        databaseRpc(owner, "save_ledger", {
+          ...payload,
+          expected_revision: stored.household.revision,
+          ledger: {
+            ...stored.ledger,
+            accounts: [{ id: crypto.randomUUID(), name: "Invalid" }],
+          },
+        }),
+      ).rejects.toBeTruthy();
+      expect(await databaseRpc(owner, "snapshot")).toEqual(stored);
+      const [audit] =
+        await admin`select count(*)::int as n from webapp.audit where "householdId"=${stored.household.id}`;
+      expect(audit.n).toBe(1);
+    });
+    it("blocks membership changes during OAuth and recovers expired leases", async () => {
+      const actor = principal();
+      await createHousehold(actor, { currency: "USD" });
+      const first = await databaseRpc<{ leaseId: string }>(
+        actor,
+        "oauth_begin",
+      );
+      await expect(
+        householdAction(actor, { action: "leave" }),
+      ).rejects.toMatchObject({ code: "OAUTH_BUSY" });
+      await expect(databaseRpc(actor, "oauth_begin")).rejects.toMatchObject({
+        code: "OAUTH_BUSY",
+      });
+      await admin`update webapp.http_oauth_leases set expires_at=now()+interval '10 seconds' where user_id=${actor.userId}`;
+      await databaseRpc(actor, "oauth_renew", { lease_id: first.leaseId });
+      const [renewed] =
+        await admin`select expires_at > now()+interval '100 seconds' as extended from webapp.http_oauth_leases where user_id=${actor.userId}`;
+      expect(renewed.extended).toBe(true);
+      await admin`update webapp.http_oauth_leases set expires_at=now()-interval '1 second' where user_id=${actor.userId}`;
+      await expect(
+        databaseRpc(actor, "oauth_renew", { lease_id: first.leaseId }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const second = await databaseRpc<{ leaseId: string }>(
+        actor,
+        "oauth_begin",
+      );
+      expect(second.leaseId).not.toBe(first.leaseId);
+      await databaseRpc(actor, "oauth_end", { lease_id: first.leaseId });
+      await expect(
+        householdAction(actor, { action: "leave" }),
+      ).rejects.toMatchObject({ code: "OAUTH_BUSY" });
+      await databaseRpc(actor, "oauth_end", { lease_id: second.leaseId });
+      await expect(
+        householdAction(actor, { action: "leave" }),
+      ).resolves.toEqual({ ok: true });
     });
     it("enforces exact receipt balance and handles concurrent allocation attempts", async () => {
       let s = await snapshot(owner);
@@ -111,6 +271,92 @@ describe.skipIf(!url)(
       expect(
         s.ledger.transactions.filter((t) => t.allocations.length),
       ).toHaveLength(1);
+    });
+    it("preserves unchanged allocation rows across unrelated edits and receipt changes", async () => {
+      const actor = principal();
+      const { id: householdId } = await createHousehold(actor, {
+        currency: "USD",
+      });
+      await mutate(actor, {
+        type: "account.save",
+        data: {
+          name: "Checking",
+          bankName: "Bank",
+          type: "checking",
+          archived: false,
+        },
+      });
+      let s = await snapshot(actor);
+      await mutate(actor, expense(s.ledger, "100", "60"));
+      s = await snapshot(actor);
+      const expenseId = s.ledger.transactions[0].id;
+      await mutate(actor, receipt(s.ledger, expenseId, "10"));
+      await mutate(actor, receipt(s.ledger, expenseId, "15"));
+      const allocations = () => admin`
+        select "receiptId", "expenseId", amount::int, ctid::text, xmin::text
+        from webapp.allocations where "householdId"=${householdId}
+        order by "receiptId"
+      `;
+      const initial = await allocations();
+      expect(initial).toHaveLength(2);
+
+      s = await snapshot(actor);
+      const account = s.ledger.accounts[0];
+      await mutate(actor, {
+        type: "account.save",
+        data: { ...account, name: "Renamed" },
+      });
+      const storedExpense = s.ledger.transactions.find(
+        (t) => t.id === expenseId,
+      )!;
+      const expenseEdit = expense(s.ledger, "120", "60");
+      await mutate(actor, {
+        ...expenseEdit,
+        data: {
+          ...expenseEdit.data,
+          id: expenseId,
+          version: storedExpense.version,
+        },
+      });
+      expect(await allocations()).toEqual(initial);
+
+      await mutate(actor, receipt(s.ledger, expenseId, "5"));
+      const withNewReceipt = await allocations();
+      expect(withNewReceipt).toHaveLength(3);
+      expect(withNewReceipt).toEqual(expect.arrayContaining(initial));
+
+      s = await snapshot(actor);
+      const editedId = initial[0].receiptId;
+      const storedReceipt = s.ledger.transactions.find(
+        (t) => t.id === editedId,
+      )!;
+      const receiptEdit = receipt(s.ledger, expenseId, "20");
+      await mutate(actor, {
+        ...receiptEdit,
+        data: {
+          ...receiptEdit.data,
+          id: editedId,
+          version: storedReceipt.version,
+        },
+      });
+      const unchanged = withNewReceipt.filter((a) => a.receiptId !== editedId);
+      const edited = await allocations();
+      expect(edited).toHaveLength(3);
+      expect(edited).toEqual(expect.arrayContaining(unchanged));
+      const changed = edited.find((a) => a.receiptId === editedId)!;
+      expect(changed.amount).toBe(2000);
+      expect(changed.xmin).not.toBe(initial[0].xmin);
+
+      s = await snapshot(actor);
+      await mutate(actor, {
+        type: "transaction.delete",
+        data: {
+          id: editedId,
+          version: s.ledger.transactions.find((t) => t.id === editedId)!
+            .version,
+        },
+      });
+      expect(await allocations()).toEqual(unchanged);
     });
     it("idempotent retries do not duplicate transactions and reject changed payloads", async () => {
       const s = await snapshot(owner),
@@ -172,17 +418,38 @@ describe.skipIf(!url)(
       const [token] =
         await admin`select * from webapp.tokens where hash=${hash(result.token)}`;
       expect(token.hash).not.toBe(result.token);
-      const p = { ...owner, tokenId: token.id, householdId: token.householdId };
+      const p = {
+        userId: owner.userId,
+        tokenId: token.id,
+        householdId: token.householdId,
+        tokenHash: hash(result.token),
+      };
       expect((await snapshot(p)).ledger.accounts).toHaveLength(1);
       await expect(
         mutate(p, expense((await snapshot(owner)).ledger)),
-      ).rejects.toThrow(/permission/);
+      ).rejects.toThrow(/permission|expired|revoked/);
       await connectionAction(owner, { action: "revoke-token", id: token.id });
-      await expect(snapshot(p)).rejects.toThrow(/permission/);
+      await expect(snapshot(p)).rejects.toThrow(/permission|expired|revoked/);
+    });
+    it("revalidates token expiry on reads and writes", async () => {
+      const result = (await connectionAction(owner, {
+        action: "create-token",
+        name: "Expiring",
+        permission: "write",
+        days: 1,
+      })) as { token: string };
+      const tokenHash = hash(result.token);
+      const p = { userId: owner.userId, tokenHash };
+      await expect(snapshot(p)).resolves.toHaveProperty("ledger");
+      await admin`update webapp.tokens set "expiresAt"=now()-interval '1 second' where hash=${tokenHash}`;
+      await expect(snapshot(p)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(
+        mutate(p, expense((await snapshot(owner)).ledger)),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
     it("lets former members request fresh approval after removal or leaving", async () => {
-      const host = { userId: crypto.randomUUID() };
-      const guest = { userId: crypto.randomUUID() };
+      const host = principal();
+      const guest = principal();
       const { id: householdId } = await createHousehold(host, {
         currency: "USD",
       });
@@ -213,7 +480,7 @@ describe.skipIf(!url)(
       await join();
     });
     it("records the actual record IDs for create, edit, and delete audits", async () => {
-      const actor = { userId: crypto.randomUUID() };
+      const actor = principal();
       const { id: householdId } = await createHousehold(actor, {
         currency: "USD",
       });
@@ -298,17 +565,48 @@ describe.skipIf(!url)(
         recordId: transfer.id,
       });
     });
+    it("persists a successful provider consent through the real RPC boundary", async () => {
+      const actor = principal();
+      const { id: householdId } = await createHousehold(actor, {
+        currency: "USD",
+      });
+      await expect(
+        consent(actor, {
+          authorizationId: "authorization",
+          decision: "approve",
+          permission: "read",
+        }),
+      ).resolves.toEqual({ redirect_url: "https://client.example/callback" });
+      const [grant] =
+        await admin`select "clientId", permission, revoked from webapp.grants where "householdId"=${householdId} and "userId"=${actor.userId}`;
+      expect(grant).toEqual({
+        clientId: "integration-consent-client",
+        permission: "read",
+        revoked: false,
+      });
+      await expect(
+        snapshot({ ...actor, clientId: grant.clientId }),
+      ).resolves.toHaveProperty("household.id", householdId);
+      await expect(
+        databaseRpc({ ...actor, clientId: grant.clientId }, "household"),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
     it("OAuth grants enforce read/write and revocation", async () => {
       const s = await snapshot(owner),
         clientId = "test-client",
         id = crypto.randomUUID();
       await admin`insert into webapp.grants(id,"householdId","userId","clientId",permission) values(${id},${s.household.id},${owner.userId},${clientId},'read')`;
-      const p = { ...owner, clientId };
-      await expect(mutate(p, expense(s.ledger))).rejects.toThrow(/permission/);
+      const p = {
+        ...owner,
+        clientId,
+      };
+      await expect(mutate(p, expense(s.ledger))).rejects.toThrow(
+        /permission|expired|revoked/,
+      );
       await admin`update webapp.grants set permission='write' where id=${id}`;
       await mutate(p, expense(s.ledger, "7", "0"));
       await connectionAction(owner, { action: "revoke-grant", id });
-      await expect(snapshot(p)).rejects.toThrow(/permission/);
+      await expect(snapshot(p)).rejects.toThrow(/permission|expired|revoked/);
     });
 
     it("REST and MCP use the same permission-enforced financial services", async () => {
@@ -384,8 +682,8 @@ describe.skipIf(!url)(
       );
     });
     it("last member leaving deletes every household record and preserves other households", async () => {
-      const last = { userId: crypto.randomUUID() };
-      const pending = { userId: crypto.randomUUID() };
+      const last = principal();
+      const pending = principal();
       const { id: h } = await createHousehold(last, {
         currency: "USD",
       });
@@ -469,8 +767,8 @@ describe.skipIf(!url)(
       ).resolves.toHaveProperty("id");
     });
     it("serializes simultaneous owner departures and deletes the empty household", async () => {
-      const a = { userId: crypto.randomUUID() },
-        b = { userId: crypto.randomUUID() };
+      const a = principal(),
+        b = principal();
       const { id: h } = await createHousehold(a, {
         currency: "USD",
       });

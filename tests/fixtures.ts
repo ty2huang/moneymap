@@ -29,7 +29,7 @@ export function expense(
   amount = "100",
   reimbursable = "30",
   date = "2026-01-10",
-): Command {
+): Extract<Command, { type: "transaction.save" }> {
   return {
     type: "transaction.save",
     data: {
@@ -51,7 +51,7 @@ export function receipt(
   expenseId: string,
   amount = "10",
   date = "2026-02-10",
-): Command {
+): Extract<Command, { type: "transaction.save" }> {
   return {
     type: "transaction.save",
     data: {

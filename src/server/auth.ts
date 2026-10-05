@@ -1,6 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { sql } from "drizzle-orm";
-import { db } from "./database";
+import { databaseRpc } from "./database";
 import { hash } from "./crypto";
 import { supabaseServer } from "./supabase";
 import { getAppUrl } from "./app-url";
@@ -12,6 +11,7 @@ export type Principal = {
   householdId?: string;
   permission?: "read" | "write";
   tokenId?: string;
+  tokenHash?: string;
 };
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 export async function authenticate(request?: Request): Promise<Principal> {
@@ -25,16 +25,20 @@ export async function authenticate(request?: Request): Promise<Principal> {
     401,
   );
   if (bearer?.startsWith("mm_")) {
-    const result = await db().execute(
-      sql`select * from webapp.resolve_token(${hash(bearer)})`,
-    );
-    const row = result[0];
+    const tokenHash = hash(bearer);
+    const row = await databaseRpc<{
+      user_id: string;
+      household_id: string;
+      permission: "read" | "write";
+      id: string;
+    } | null>(undefined, "resolve_token", { token_hash: tokenHash });
     ensure(row, "Token is expired or revoked.", "UNAUTHORIZED", 401);
     return {
       userId: String(row.user_id),
       householdId: String(row.household_id),
       permission: row.permission as "read" | "write",
       tokenId: String(row.id),
+      tokenHash,
     };
   }
   if (bearer) {
@@ -56,7 +60,10 @@ export async function authenticate(request?: Request): Promise<Principal> {
       "UNAUTHORIZED",
       401,
     );
-    return { userId: payload.sub, clientId: payload.client_id };
+    return {
+      userId: payload.sub,
+      clientId: payload.client_id,
+    };
   }
   const client = await supabaseServer();
   const { data, error } = await client.auth.getUser();

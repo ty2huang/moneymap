@@ -54,41 +54,37 @@ runs `supabase db push`. A hosted deployment does not require `db:start` or
 `db:reset`. Applying migrations does not activate the hosted Auth settings from
 `supabase/config.toml`; configure those explicitly in steps 4 and 5.
 
-### 3. Provision the application database connection
+### 3. Verify the HTTPS database API
 
-The migration creates the restricted `moneymap_app` role and its grants, but deliberately creates it as `NOLOGIN`. It does not set a password, and rerunning it does not change the login state or password of an existing role. After the migration succeeds, provision the application login from a privileged database session, such as the production Supabase SQL Editor:
+Runtime queries use `@supabase/server`'s `createAdminClient` with the server-only
+`SUPABASE_SECRET_KEY`. The Next.js backend first verifies the browser session or
+OAuth bearer token, then passes the verified user and client IDs to the RPC.
+Personal API tokens use the same endpoint with their hash, which the database
+revalidates for every operation. No PostgreSQL connection string is needed.
+
+The migration installs `public.moneymap`, an atomic HTTPS RPC owned by the
+restricted `moneymap_app` role. Only `service_role` may execute it; `anon` and
+`authenticated` have no execution permission. It accepts user identity only from
+the trusted backend or a valid personal token, checks membership and permissions,
+and preserves the existing FORCE RLS policies. Although a secret-key client
+normally bypasses RLS, this RPC runs as its restricted owner. `webapp` remains private. Verify in the SQL Editor:
 
 ```sql
-ALTER ROLE moneymap_app
-  WITH LOGIN
-  PASSWORD 'generate-a-strong-unique-password'
-  NOCREATEDB
-  NOCREATEROLE
-  NOINHERIT
-  NOBYPASSRLS;
+SELECT rolname, rolsuper, rolbypassrls
+FROM pg_roles WHERE rolname = 'moneymap_app';
+
+SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner
+FROM pg_proc p WHERE p.oid = 'public.moneymap(text,jsonb)'::regprocedure;
+
+SELECT has_function_privilege('anon', 'public.moneymap(text,jsonb)', 'EXECUTE') AS anon,
+       has_function_privilege('authenticated', 'public.moneymap(text,jsonb)', 'EXECUTE') AS authenticated,
+       has_function_privilege('service_role', 'public.moneymap(text,jsonb)', 'EXECUTE') AS backend;
 ```
 
-Use a different generated password for each environment. Do not put the password in Git, a migration file, or a client-visible variable. Verify the role before configuring the app:
-
-```sql
-SELECT rolname, rolcanlogin, rolsuper, rolbypassrls
-FROM pg_roles
-WHERE rolname = 'moneymap_app';
-```
-
-The expected values are `rolcanlogin = true`, `rolsuper = false`, and `rolbypassrls = false`.
-
-Open the Supabase **Connect** dialog and copy the shared **transaction pooler**
-connection string. Preserve the actual host, use `moneymap_app.<project-ref>` as
-the username, and use the application role's password from above:
-
-```text
-postgresql://moneymap_app.<project-ref>:<url-encoded-app-password>@<pooler-host>:6543/postgres?sslmode=require
-```
-
-This is `DATABASE_URL`. URL-encode special characters in the password. The
-application already disables prepared statements (`prepare: false`) for
-transaction pooling and rejects application queries using an unrestricted role.
+Expect `rolsuper = false`, `rolbypassrls = false`, `prosecdef = true`, and
+`owner = moneymap_app`; execution permissions must be `false`, `false`, and
+`true` respectively. This role can remain `NOLOGIN`; do not grant direct
+`webapp` table access to `anon` or `authenticated`.
 
 ### 4. Configure Google sign-in and redirects
 
@@ -168,24 +164,26 @@ the existing key map instead; a newly generated key cannot decrypt old records.
 Add these values for **Production** in the import screen or project environment
 settings. Configure Preview separately using its own Supabase project and keys.
 
-| Variable                               | Value                                                |
-| -------------------------------------- | ---------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`             | `https://<project-ref>.supabase.co`                  |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable API key                         |
-| `APP_URL`                              | `https://money.example`                              |
-| `DATABASE_URL`                         | Restricted transaction-pooler connection from step 3 |
-| `MONEYMAP_MASTER_KEYS`                 | `{"1":"<base64-encoded-32-byte-key>"}`               |
-| `MONEYMAP_ACTIVE_KEY_VERSION`          | `1`                                                  |
+| Variable                               | Value                                                 |
+| -------------------------------------- | ----------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | `https://<project-ref>.supabase.co`                   |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable API key                          |
+| `SUPABASE_SECRET_KEY`                  | Project secret API key (`sb_secret_...`), server-only |
+| `APP_URL`                              | `https://money.example`                               |
+| `MONEYMAP_MASTER_KEYS`                 | `{"1":"<base64-encoded-32-byte-key>"}`                |
+| `MONEYMAP_ACTIVE_KEY_VERSION`          | `1`                                                   |
 
 Paste the encryption JSON directly into Vercel, without the surrounding single quotes used
 in `.env.local` examples.
 
-`DATABASE_URL` must use the password-protected `moneymap_app` login, not
-`postgres`, a table owner, `service_role`, or a role with `BYPASSRLS`.
-URL-encode special characters in the password when constructing the connection
-string. Do not deploy `DATABASE_ADMIN_URL`, `TEST_DATABASE_URL`, or other test
+Do not deploy `DATABASE_ADMIN_URL`, `TEST_DATABASE_URL`, or other test
 variables, or the local `SUPABASE_AUTH_EXTERNAL_GOOGLE_*` variables.
-`MONEYMAP_MASTER_KEYS` is server-only and must never use a `NEXT_PUBLIC_` name.
+If the host requires an HTTP proxy, enable Node's `NODE_USE_ENV_PROXY=1`
+and configure its proxy environment. Normal Vercel deployments need no proxy.
+`MONEYMAP_MASTER_KEYS` and `SUPABASE_SECRET_KEY` are server-only and must never use
+a `NEXT_PUBLIC_` name. The publishable key is still required for Supabase Auth and
+Realtime in the browser. `SUPABASE_JWKS_URL` is unnecessary: OAuth JWT verification
+derives the signing-key endpoint from `NEXT_PUBLIC_SUPABASE_URL`.
 
 ### 8. Verify and deploy
 
@@ -242,7 +240,7 @@ than promoting a preview artifact built against a different Supabase project.
 | Google reports a redirect mismatch                 | Google's redirect URI must be Supabase's provider callback                                             |
 | Sign-in returns to localhost or another deployment | `APP_URL`, Supabase Site URL, and allowed app callback                                                 |
 | Writes return an origin error                      | Open the exact origin configured in `APP_URL`                                                          |
-| Database login or role errors                      | Pooler host, `moneymap_app.<project-ref>` username, encoded password, and role login state             |
+| Database API or role errors                        | Supabase URL/key, HTTPS connectivity, applied RPC migration, and restricted RPC owner                  |
 | OAuth bearer tokens are rejected                   | Active asymmetric signing key, token hook, audience, and a fresh OAuth token                           |
 | Encrypted fields cannot be read                    | Correct master-key versions for the database                                                           |
 | Live updates are missing                           | Realtime enabled, broadcast triggers/policy installed, and both users authorized                       |
@@ -278,7 +276,7 @@ Before launch and periodically afterward:
 
 1. Restore a database backup into an isolated project with outbound integrations disabled.
 2. Restore the corresponding encryption-key versions to an isolated application environment.
-3. Provision the restricted database login and verify its RLS behavior; role passwords are not part of a normal `pg_dump`.
+3. Restore the restricted role and RPC ownership, then verify RLS behavior. If restoring with `--no-owner`, explicitly transfer `public.moneymap(text,jsonb)` back to `moneymap_app`; it must never run as an unrestricted owner.
 4. Verify decrypted account names/comments, transaction counts, reimbursement allocations, and monthly totals against the backup source.
 5. Confirm a second household cannot access the restored records. Reconfigure Auth callbacks and Realtime for the isolated origin rather than reusing production redirect settings.
 6. Record the result and remove the isolated restore project when finished.
@@ -295,6 +293,10 @@ The script locks household rows and rewraps data keys in one transaction. It doe
 
 ## Schema evolution
 
+The migration history starts with `20261004060000_initial_schema.sql`, which
+installs the current tables, RLS policies, financial constraints, and HTTPS RPC
+on an empty database. Its Drizzle schema snapshot is `0000_initial_schema`.
+
 `src/db/schema.ts` describes the relational tables. After changing it, run `pnpm run db:generate -- <descriptive_name>`. The bridge runs Drizzle Kit, retains its SQL and snapshots in `drizzle`, asks the Supabase CLI to create a correctly timestamped migration, and copies the generated SQL into `supabase/migrations`. Review both outputs, test with `pnpm run db:reset`, then deploy with `pnpm run db:migrate`.
 
 For RLS policies, deferred triggers, Realtime/Auth integration, or other SQL Drizzle cannot model, create a migration with `pnpm run db:new -- <descriptive_name>` and edit the resulting file in `supabase/migrations`. Those custom migrations are applied in the same Supabase history as the generated schema migrations.
@@ -306,4 +308,4 @@ application release or a forward database correction, not blind schema deletion.
 
 ## Verification limits
 
-Local PostgreSQL tests cover the real restricted-role persistence and financial services. Browser tests use synthetic HTTP fixtures to validate interaction and refresh behavior. Real Google authentication, Supabase websocket delivery, OAuth client interoperability, and hosted restore operations require a configured Supabase/Vercel environment and must pass the smoke tests before launch.
+Local PostgreSQL tests exercise the backend-only RPC with PostgREST-style server claims and API roles, covering real restricted-role persistence and financial services. Browser tests use synthetic HTTP fixtures to validate interaction and refresh behavior. Real Google authentication, Supabase websocket delivery, OAuth client interoperability, and hosted restore operations require a configured Supabase/Vercel environment and must pass the smoke tests before launch.
